@@ -1,0 +1,69 @@
+#                                               -*- Autoconf -*-
+# Process this file with autoconf to produce a configure script.
+
+AC_PREREQ(2.61)
+AC_INIT(libasyncsock, 0.1.0)
+AC_CONFIG_SRCDIR([src/asyncsock.c])
+AM_INIT_AUTOMAKE([foreign no-dist no-installinfo no-installman -Wall])
+AC_CONFIG_HEADER([src/asyncsock_config.h])
+
+#
+# Checks for programs.
+#
+AC_PROG_CC
+AC_PROG_LIBTOOL
+AC_LANG_C
+
+#
+# Checks for typedefs, structures, and compiler characteristics.
+#
+AC_C_CONST
+AC_C_TYPEOF
+AC_CHECK_TYPES([int8_t, int16_t, int32_t, int64_t, 
+                uint8_t, uint16_t, uint32_t, uint64_t, 
+                intptr_t, uintptr_t, ptrdiff_t,
+                size_t, ssize_t, off_t, 
+                mode_t, pid_t, socklen_t, sigset_t, time_t ])
+
+
+#
+# Checks for header files.
+#
+AC_HEADER_STDC
+AC_CHECK_HEADERS(sys/event.h sys/epoll.h)
+
+#
+# Checks for library functions.
+#
+AC_FUNC_REALLOC
+
+AC_CHECK_FUNCS(
+    [sigfillset sigemptyset sigprocmask sigwait signal \
+     malloc calloc memcpy memmove free memchr memcmp \
+     strncmp printf \
+     open close unlink read write fcntl \
+     getaddrinfo freeaddrinfo setsockopt getsockopt \
+     socket bind listen accept recv send shutdown],,
+    AC_MSG_FAILURE([required function not found]) \
+)
+AC_CHECK_FUNCS(
+    [accept4]
+)
+
+AC_CHECK_FUNCS( [kqueue kevent],
+    [ AC_DEFINE([USE_KQUEUE], [1], [Define if you have kqueue]) ],
+    [ NO_KQUEUE=1 ]
+)
+AC_CHECK_FUNCS( [epoll_create epoll_create1 epoll_ctl epoll_wait],
+    [ AC_DEFINE([USE_EPOLL], [1], [Define if you have epoll]) ],
+    [ NO_EPOLL=1 ]
+)
+AS_IF(
+    [test "$NO_KQUEUE" -a "$NO_EPOLL"],
+    AC_MSG_FAILURE([kqueue/epoll not found])
+)
+
+AC_CONFIG_FILES([Makefile \
+                 src/Makefile \
+                 tests/Makefile])
+AC_OUTPUT
