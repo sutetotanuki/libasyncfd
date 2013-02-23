@@ -1,14 +1,14 @@
 /*
- *  asyncsock.c
- *  libasyncsock
+ *  asyncfd.c
+ *  libasyncfd
  *
  *  Created by Masatoshi Teruya on 13/02/19.
  *  Copyright 2013 Masatoshi Teruya. All rights reserved.
  *
  */
 
-#include "libasyncsock.h"
-#include "asyncsock_private.h"
+#include "libasyncfd.h"
+#include "asyncfd_private.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -27,12 +27,12 @@
 // port range: 1-65535 + null-terminator
 #define ASYNCSOCK_PORT_LEN          6
 
-#define asock_fd_init(fd) \
+#define afd_fd_init(fd) \
     ((fcntl(fd,F_SETFL,O_NONBLOCK) != -1) && \
      (fcntl(fd,F_SETFD,FD_CLOEXEC) != -1) && \
      !setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&AS_YES,(socklen_t)sizeof(AS_YES)))
 
-static asock_t *_asoc_alloc_inet( int type, const char *addr, size_t len )
+static afd_sock_t *_asoc_alloc_inet( int type, const char *addr, size_t len )
 {
     if( len < ASYNCSOCK_INETPATH_MAX )
     {
@@ -96,7 +96,7 @@ static asock_t *_asoc_alloc_inet( int type, const char *addr, size_t len )
 
             if( rc == 0 )
             {
-                asock_t *as = NULL;
+                afd_sock_t *as = NULL;
                 struct addrinfo *ptr = res;
                 int fd = 0;
                 
@@ -108,11 +108,11 @@ static asock_t *_asoc_alloc_inet( int type, const char *addr, size_t len )
                                        ptr->ai_protocol ) ) != -1 )
                     {
                         // init socket descriptor
-                        if( asock_fd_init( fd ) )
+                        if( afd_fd_init( fd ) )
                         {
                             struct sockaddr_in *inaddr = palloc( struct sockaddr_in );
                             
-                            if( inaddr && ( as = palloc( asock_t ) ) ){
+                            if( inaddr && ( as = palloc( afd_sock_t ) ) ){
                                 as->fd = fd;
                                 as->proto = PF_INET;
                                 as->type = type;
@@ -147,7 +147,7 @@ static asock_t *_asoc_alloc_inet( int type, const char *addr, size_t len )
     return NULL;
 }
 
-static asock_t *_asock_alloc_unix( int type, const char *path, size_t len )
+static afd_sock_t *_afd_alloc_unix( int type, const char *path, size_t len )
 {
     // length too large
     if( len < ASYNCSOCK_UNIXPATH_MAX )
@@ -158,9 +158,9 @@ static asock_t *_asock_alloc_unix( int type, const char *path, size_t len )
         if( fd != -1 )
         {
             // init socket descriptor
-            if( asock_fd_init( fd ) )
+            if( afd_fd_init( fd ) )
             {
-                asock_t *as = palloc( asock_t );
+                afd_sock_t *as = palloc( afd_sock_t );
                 struct sockaddr_un *unaddr = NULL;
                 
                 if( as && ( unaddr = palloc( struct sockaddr_un ) ) ){
@@ -188,7 +188,7 @@ static asock_t *_asock_alloc_unix( int type, const char *path, size_t len )
     return NULL;
 }
 
-asock_t *asock_alloc( const char *addr, size_t len, int type )
+afd_sock_t *afd_sock_alloc( const char *addr, size_t len, int type )
 {
     char *delim = (char*)memchr( addr, ':', len );
     
@@ -207,7 +207,7 @@ asock_t *asock_alloc( const char *addr, size_t len, int type )
         }
         // unix domain socket
         else if( strncmp( "unix", addr, 4 ) == 0 ){
-            return _asock_alloc_unix( type, delim, len );
+            return _afd_alloc_unix( type, delim, len );
         }
         // unknown scheme
         // errno = EPROTONOSUPPORT;
@@ -218,7 +218,7 @@ asock_t *asock_alloc( const char *addr, size_t len, int type )
 }
 
 
-void asock_dealloc( asock_t *as )
+void afd_sock_dealloc( afd_sock_t *as )
 {
     if( as->fd ){
         close( as->fd );
@@ -233,7 +233,7 @@ void asock_dealloc( asock_t *as )
     pdealloc( as );
 }
 
-int asock_listen( asock_t *as, int backlog )
+int afd_listen( afd_sock_t *as, int backlog )
 {
     // bind and listen
     if( !bind( as->fd, (struct sockaddr*)as->addr, (socklen_t)as->addrlen ) &&
@@ -246,7 +246,7 @@ int asock_listen( asock_t *as, int backlog )
 
 
 
-struct _as_state_t {
+struct _afd_state_t {
 #ifdef USE_KQUEUE
     struct kevent *rcv_evs;
 
@@ -256,15 +256,15 @@ struct _as_state_t {
     int32_t nrcv;
     int32_t nreg;
     int32_t fd;
-    as_loop_cleanup_cb cleanup;
+    afd_loop_cleanup_cb cleanup;
     void *udata;
 };
 
 
-static as_state_t *_asock_state_alloc( int32_t nevs, as_loop_cleanup_cb cb, 
+static afd_state_t *_afd_state_alloc( int32_t nevs, afd_loop_cleanup_cb cb, 
                                        void *udata )
 {
-    as_state_t *state = palloc( as_state_t );
+    afd_state_t *state = palloc( afd_state_t );
     
     if( state )
     {
@@ -296,7 +296,7 @@ static as_state_t *_asock_state_alloc( int32_t nevs, as_loop_cleanup_cb cb,
     return NULL;
 }
 
-static int _asock_state_realloc( as_state_t *state, int32_t nevs )
+static int _afd_state_realloc( afd_state_t *state, int32_t nevs )
 {
 #ifdef USE_KQUEUE
     struct kevent *evs = pnalloc( nevs, struct kevent );
@@ -314,9 +314,9 @@ static int _asock_state_realloc( as_state_t *state, int32_t nevs )
     return -1;
 }
 
-static void _asock_state_dealloc( as_state_t *state )
+static void _afd_state_dealloc( afd_state_t *state )
 {
-    as_loop_cleanup_cb cb = state->cleanup;
+    afd_loop_cleanup_cb cb = state->cleanup;
     void *udata = state->udata;
     
     close( state->fd );
@@ -330,14 +330,14 @@ static void _asock_state_dealloc( as_state_t *state )
 }
 
 
-as_loop_t *asock_loop_alloc( asock_t *as, int32_t nevts, as_loop_cleanup_cb cb, 
-                             void *udata )
+afd_loop_t *afd_loop_alloc( afd_sock_t *as, int32_t nevts, 
+                            afd_loop_cleanup_cb cb, void *udata )
 {
     if( nevts > 0 )
     {
-        as_loop_t *loop = palloc( as_loop_t );
+        afd_loop_t *loop = palloc( afd_loop_t );
         
-        if( loop && ( loop->state = _asock_state_alloc( nevts, cb, udata ) ) ){
+        if( loop && ( loop->state = _afd_state_alloc( nevts, cb, udata ) ) ){
             loop->as = as;
             return loop;
         }
@@ -351,14 +351,14 @@ as_loop_t *asock_loop_alloc( asock_t *as, int32_t nevts, as_loop_cleanup_cb cb,
     return NULL;
 }
 
-void asock_loop_dealloc( as_loop_t *loop )
+void afd_loop_dealloc( afd_loop_t *loop )
 {
-    _asock_state_dealloc( loop->state );
+    _afd_state_dealloc( loop->state );
     pdealloc( loop );
 }
 
-int asock_watch( as_watch_t *w, as_loop_t *loop, int fd, as_evflag_e flg, 
-                 as_watch_cb cb, void *udata )
+int afd_watch( afd_watch_t *w, afd_loop_t *loop, int fd, afd_evflag_e flg, 
+               afd_watch_cb cb, void *udata )
 {
     // valid defined descriptor, flag, callbacks
     if( fd > 0 && flg && ( flg & AS_EVFLAG_VALID ) == 0 && cb )
@@ -369,7 +369,7 @@ int asock_watch( as_watch_t *w, as_loop_t *loop, int fd, as_evflag_e flg,
         w->cb = cb;
         w->udata = udata;
         
-        return asock_rewatch( w, loop );
+        return afd_rewatch( w, loop );
     }
     // invalid arguments
     errno = EINVAL;
@@ -377,7 +377,7 @@ int asock_watch( as_watch_t *w, as_loop_t *loop, int fd, as_evflag_e flg,
     return -1;
 }
 
-int asock_rewatch( as_watch_t *w, as_loop_t *loop )
+int afd_rewatch( afd_watch_t *w, afd_loop_t *loop )
 {
     int flg = w->flg;
 #ifdef USE_KQUEUE
@@ -452,12 +452,12 @@ int asock_rewatch( as_watch_t *w, as_loop_t *loop )
     return -1;
 }
 
-int asock_unwatch( as_watch_t *w, as_loop_t *loop )
+int afd_unwatch( afd_watch_t *w, afd_loop_t *loop )
 {
 #ifdef USE_KQUEUE
     struct kevent evt;
     
-    EV_SET( &evt, w->fd, w->flg_kq, EV_DELETE, 0, 0, (void*)w );
+    EV_SET( &evt, w->fd, w->flg_kq, EV_DELETE, 0, 0, NULL );
     // deregister event
     if( kevent( loop->state->fd, &evt, 1, NULL, 0, NULL ) == -1 ){
         return -1;
@@ -479,23 +479,23 @@ int asock_unwatch( as_watch_t *w, as_loop_t *loop )
     return 0;
 }
 
-int asock_unwatch_close( as_watch_t *w, as_loop_t *loop )
+int afd_unwatch_close( afd_watch_t *w, afd_loop_t *loop )
 {
     // close safely
     shutdown( w->fd, SHUT_RDWR );
     close( w->fd );
     
-    return asock_unwatch( w, loop );
+    return afd_unwatch( w, loop );
 }
 
 
-int asock_wait( as_loop_t *loop, struct timespec *timeout )
+int afd_wait( afd_loop_t *loop, struct timespec *timeout )
 {
-    as_state_t *state = loop->state;
+    afd_state_t *state = loop->state;
     
     // realloc receive events container
     if( state->nreg > state->nrcv && 
-        _asock_state_realloc( state, state->nreg ) == -1 ){
+        _afd_state_realloc( state, state->nreg ) == -1 ){
         return -1;
     }
     else
@@ -515,7 +515,7 @@ int asock_wait( as_loop_t *loop, struct timespec *timeout )
         
         if( nevt > 0 )
         {
-            as_watch_t *w;
+            afd_watch_t *w;
             int i;
             
             for( i = 0; i < nevt; i++ )
@@ -523,7 +523,7 @@ int asock_wait( as_loop_t *loop, struct timespec *timeout )
                 evt = &state->rcv_evs[i];
                 
 #ifdef USE_KQUEUE
-                w = (as_watch_t*)evt->udata;
+                w = (afd_watch_t*)evt->udata;
                 switch ( evt->filter ) {
                     case EVFILT_READ:
                         w->cb( loop, w, AS_EV_READ, evt->flags & EV_EOF );
@@ -536,7 +536,7 @@ int asock_wait( as_loop_t *loop, struct timespec *timeout )
                         break;
                 }
 #elif USE_EPOLL
-                w = (as_watch_t*)evt->data.ptr;
+                w = (afd_watch_t*)evt->data.ptr;
                 if( evt->events & EPOLLIN ){
                     w->cb( loop, w, AS_EV_READ, evt->events & EPOLLRDHUP );
                 }

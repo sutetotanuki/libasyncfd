@@ -1,6 +1,6 @@
 /*
- *  asyncsock_private.h
- *  libasyncsock
+ *  asyncfd_private.h
+ *  libasyncfd
  *
  *  Created by Masatoshi Teruya on 13/02/19.
  *  Copyright 2013 Masatoshi Teruya. All rights reserved.
@@ -15,7 +15,7 @@
 #include <errno.h>
 
 #ifdef HAVE_CONFIG_H
-#include "asyncsock_config.h"
+#include "asyncfd_config.h"
 #endif
 
 #ifdef USE_KQUEUE

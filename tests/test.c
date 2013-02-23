@@ -1,13 +1,13 @@
 #include <stdio.h>
-#include "libasyncsock.h"
-#include "asyncsock_private.h"
+#include "libasyncfd.h"
+#include "asyncfd_private.h"
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
 
 static const char SENDTEST[] = 
         "HTTP/1.1 200 OK\r\n"
-        "Server: libasyncsock\r\n"
+        "Server: libasyncfd\r\n"
         "Content-Length: 5\r\n"
         "Connection: keep-alive\r\n"
         "Content-Type: text/plain\r\n\r\n"
@@ -16,17 +16,17 @@ static const size_t SENDTEST_LEN = sizeof( SENDTEST ) - 1;
 
 typedef struct {
     int write;
-    as_watch_t read_w;
-    as_watch_t write_w;
+    afd_watch_t read_w;
+    afd_watch_t write_w;
 } mydata_t;
 
-static void test_unwatch( as_loop_t *loop, as_watch_t *w )
+static void test_unwatch( afd_loop_t *loop, afd_watch_t *w )
 {
-    asock_unwatch_close( w, loop );
+    afd_unwatch_close( w, loop );
     pdealloc( w->udata );
 }
 
-static void test_write( as_loop_t *loop, as_watch_t *w, as_evflag_e flg )
+static void test_write( afd_loop_t *loop, afd_watch_t *w, afd_evflag_e flg )
 {
     //plog( "test_write: %d", w->fd );
     mydata_t *data = (mydata_t*)w->udata;
@@ -44,7 +44,7 @@ static void test_write( as_loop_t *loop, as_watch_t *w, as_evflag_e flg )
     }
 }
 
-static void test_read( as_loop_t *loop, as_watch_t *w, as_evflag_e flg, int hup )
+static void test_read( afd_loop_t *loop, afd_watch_t *w, afd_evflag_e flg, int hup )
 {
     char buf[8192];
     size_t blen = 8192;
@@ -71,7 +71,7 @@ static void test_read( as_loop_t *loop, as_watch_t *w, as_evflag_e flg, int hup 
 
 }
 
-static void test_rw( as_loop_t *loop, as_watch_t *w, as_evflag_e flg, int hup )
+static void test_rw( afd_loop_t *loop, afd_watch_t *w, afd_evflag_e flg, int hup )
 {
     // close by peer
     if( hup ){
@@ -85,7 +85,7 @@ static void test_rw( as_loop_t *loop, as_watch_t *w, as_evflag_e flg, int hup )
         size_t blen = 8192;
         ssize_t len = 0;
         
-        asock_edge_start();
+        afd_edge_start();
         len = read( w->fd, buf, blen );
         
         if( len > 0 )
@@ -100,11 +100,11 @@ static void test_rw( as_loop_t *loop, as_watch_t *w, as_evflag_e flg, int hup )
                 test_unwatch( loop, w );
             }
             else {
-                asock_edge_again();
+                afd_edge_again();
             }
             /*
-            else if( asock_rewatch( w, loop ) ){
-                pfelog( asock_rewatch );
+            else if( afd_rewatch( w, loop ) ){
+                pfelog( afd_rewatch );
                 test_unwatch( loop, w );
             }*/
         }
@@ -122,30 +122,30 @@ static void test_rw( as_loop_t *loop, as_watch_t *w, as_evflag_e flg, int hup )
     }
 }
 
-static void test_accept( as_loop_t *loop, as_watch_t *w, as_evflag_e flg, int hup )
+static void test_accept( afd_loop_t *loop, afd_watch_t *w, afd_evflag_e flg, int hup )
 {
-    int cfd = asock_accept( w->fd, NULL, NULL );
+    int cfd = afd_accept( w->fd, NULL, NULL );
     mydata_t *data = NULL;
     
-    switch( asock_accept_chk( cfd, 0 ) )
+    switch( afd_accept_chk( cfd, 0 ) )
     {
         case -1:
             pfelog( accept );
         break;
         case 0:
-            pfelog( asock_accept_check );
+            pfelog( afd_accept_check );
             close( cfd );
         break;
         default:
             //plog( "got client: %d", cfd );
             if( !( data = pcalloc( 1, mydata_t ) ) || 
-                asock_watch( &data->read_w, loop, cfd, AS_EV_READ|AS_EV_EDGE, test_rw, data ) /*||
-                asock_watch( &data->read_w, loop, cfd, AS_EV_READ, test_read, data ) ||
-                asock_watch( &data->write_w, loop, cfd, AS_EV_WRITE, test_write, data )*/ ){
+                afd_watch( &data->read_w, loop, cfd, AS_EV_READ|AS_EV_EDGE, test_rw, data ) /*||
+                afd_watch( &data->read_w, loop, cfd, AS_EV_READ, test_read, data ) ||
+                afd_watch( &data->write_w, loop, cfd, AS_EV_WRITE, test_write, data )*/ ){
                 if( data ){
                     pdealloc( data );
                 }
-                pelog( "failed to palloc/asock_watch" );
+                pelog( "failed to palloc/afd_watch" );
                 close( cfd );
             }
     }
@@ -177,19 +177,19 @@ static int child_signal( void )
     return rc;
 }
 
-static void test_loop( asock_t *as )
+static void test_loop( afd_sock_t *as )
 {
-    as_loop_t *loop = NULL;
-    as_watch_t w;
+    afd_loop_t *loop = NULL;
+    afd_watch_t w;
     
     child_signal();
     
-    if( !( loop = asock_loop_alloc( as, SOMAXCONN, as_loop_cleanup_null, NULL ) ) ){
-        pfelog( asock_loop_alloc );
+    if( !( loop = afd_loop_alloc( as, SOMAXCONN, afd_loop_cleanup_null, NULL ) ) ){
+        pfelog( afd_loop_alloc );
         exit(0);
     }
-    else if( asock_watch( &w, loop, as->fd, AS_EV_READ, test_accept, NULL ) == -1 ){
-        pfelog( asock_watch );
+    else if( afd_watch( &w, loop, as->fd, AS_EV_READ, test_accept, NULL ) == -1 ){
+        pfelog( afd_watch );
         exit(0);
     }
     else
@@ -197,13 +197,13 @@ static void test_loop( asock_t *as )
         //struct timeval tval = { 1, 0 };
         int nev;
         
-        while( ( nev = asock_wait( loop, /*&tval*/NULL ) ) != -1 ){
+        while( ( nev = afd_wait( loop, /*&tval*/NULL ) ) != -1 ){
             //plog( "proc ev: %d", nev );
         }
-        pfelog( asock_wait );
+        pfelog( afd_wait );
         
-        asock_unwatch( &w, loop );
-        asock_loop_dealloc( loop );
+        afd_unwatch( &w, loop );
+        afd_loop_dealloc( loop );
         
         exit(0);
     }
@@ -212,17 +212,17 @@ static void test_loop( asock_t *as )
 static void test_listen( void )
 {
     const char *addr = "inet://127.0.0.1:8080";
-    asock_t *as = asock_alloc( addr, strlen( addr ), AS_TYPE_STREAM );
+    afd_sock_t *as = afd_sock_alloc( addr, strlen( addr ), AS_TYPE_STREAM );
     int8_t nchild = 2;
     int8_t i = 0;
     pid_t pid = 0;
     
     if( !as ){
-        pfelog( asock_alloc );
+        pfelog( afd_alloc );
         exit(0);
     }
-    else if( asock_listen( as, SOMAXCONN ) == -1 ){
-        pfelog( asock_listen );
+    else if( afd_listen( as, SOMAXCONN ) == -1 ){
+        pfelog( afd_listen );
         exit(0);
     }
     
@@ -239,7 +239,7 @@ static void test_listen( void )
     
     plog( "startup" );
     plog( "try to ab -c 10 -n 100000 -k http://127.0.0.1:8080/" );
-    asock_dealloc( as );
+    afd_sock_dealloc( as );
 }
 
 static int wait4signal( void )

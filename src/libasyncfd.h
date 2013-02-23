@@ -1,6 +1,6 @@
 /*
- *  asyncsock.h
- *  libasyncsock
+ *  asyncfd.h
+ *  libasyncfd
  *
  *  Created by Masatoshi Teruya on 13/02/19.
  *  Copyright 2013 Masatoshi Teruya. All rights reserved.
@@ -18,7 +18,7 @@
 #include <arpa/inet.h>
 
 #ifdef HAVE_CONFIG_H
-#include "asyncsock_config.h"
+#include "asyncfd_config.h"
 #endif
 
 static const int AS_YES = 1;
@@ -38,10 +38,10 @@ typedef struct {
     size_t addrlen;
     // opaque address 
     void *addr;
-} asock_t;
+} afd_sock_t;
 
 /*
-    create and return new asock_t
+    create and return new afd_sock_t
     
     addr: address-string must be following format;
             unix-addr: unix://path/to/sock/file
@@ -50,13 +50,13 @@ typedef struct {
     len : length of addr
     type: AS_TYPE_STREAM|AS_TYPE_DGRAM|AS_TYPE_SEQPACKET
     
-    return: new asock_t on success, or NULL on failure.(check errno)
+    return: new afd_sock_t on success, or NULL on failure.(check errno)
 */
-asock_t *asock_alloc( const char *addr, size_t len, int type );
+afd_sock_t *afd_sock_alloc( const char *addr, size_t len, int type );
 /*
-    deallocate asock_t
+    deallocate afd_sock_t
 */
-void asock_dealloc( asock_t *as );
+void afd_sock_dealloc( afd_sock_t *as );
 /*
     bind and listen
     
@@ -64,43 +64,43 @@ void asock_dealloc( asock_t *as );
     
     return: 0 on success, or -1 on failure.(check errno)
 */
-int asock_listen( asock_t *as, int backlog );
+int afd_listen( afd_sock_t *as, int backlog );
 
 
 /*
     event loop state data structure(opaque)
 */
-typedef struct _as_state_t as_state_t;
+typedef struct _afd_state_t afd_state_t;
 /*
     event loop data structure
 */
 typedef struct {
-    asock_t *as;
-    as_state_t *state;
-} as_loop_t;
+    afd_sock_t *as;
+    afd_state_t *state;
+} afd_loop_t;
 
 /*
     state cleanup callback-function prototype.
-    cleanup function will be call when deallocate as_loop.
+    cleanup function will be call when deallocate afd_loop_t.
 */
-typedef void (*as_loop_cleanup_cb)( void* );
-#define as_loop_cleanup_null    ((as_loop_cleanup_cb)0)
+typedef void (*afd_loop_cleanup_cb)( void* );
+#define afd_loop_cleanup_null    ((afd_loop_cleanup_cb)0)
 /*
-    carete and return as_loop_t.
+    carete and return afd_loop_t.
     
-    as      : asock_t
+    as      : afd_sock_t
     nevts   : default number of event buffer.(increase automatically)
     cb      : cleanup function. you can set to null.
     udata   : pass for arguemnt of as_cleanup_cb
     
-    return: new as_loop_t on success, or NULL on failure.(check errno)
+    return: new afd_loop_t on success, or NULL on failure.(check errno)
 */
-as_loop_t *asock_loop_alloc( asock_t *as, int32_t nevts, as_loop_cleanup_cb cb, 
-                             void *udata );
+afd_loop_t *afd_loop_alloc( afd_sock_t *as, int32_t nevts, 
+                            afd_loop_cleanup_cb cb, void *udata );
 /*
-    deallocate as_loop_t
+    deallocate afd_loop_t
 */
-void asock_loop_dealloc( as_loop_t *loop );
+void afd_loop_dealloc( afd_loop_t *loop );
 
 
 /*
@@ -119,14 +119,14 @@ typedef enum {
     AS_EV_WRITE = 1 << 3,
     // valid event watch flag
     AS_EVFLAG_VALID = ~(AS_EV_LEVEL|AS_EV_EDGE|AS_EV_READ|AS_EV_WRITE)
-} as_evflag_e;
+} afd_evflag_e;
 
-typedef struct _as_watch_t as_watch_t;
+typedef struct _afd_watch_t afd_watch_t;
 /*
     callback-function prototype of each event types
 */
-typedef void (*as_watch_cb)( as_loop_t *loop, as_watch_t *w, as_evflag_e flg, 
-                             int hup );
+typedef void (*afd_watch_cb)( afd_loop_t *loop, afd_watch_t *w, afd_evflag_e flg, 
+                              int hup );
 /*
     event watch data structure
     
@@ -136,13 +136,13 @@ typedef void (*as_watch_cb)( as_loop_t *loop, as_watch_t *w, as_evflag_e flg,
     cb      : callback-function pointer
     udata   : user data pointer
 */
-struct _as_watch_t {
+struct _afd_watch_t {
     int fd;
 #ifdef USE_KQUEUE
     int flg_kq;
 #endif
-    as_evflag_e flg;
-    as_watch_cb cb;
+    afd_evflag_e flg;
+    afd_watch_cb cb;
     void *udata;
 };
 
@@ -156,43 +156,43 @@ struct _as_watch_t {
                 eg: if you want to watch read event with edge trigger;
                     AS_EV_READ|AS_EV_EDGE
     cb      : callback function on this event
-    udata   : to set a udata of w(as_watch_t).
+    udata   : to set a udata of w(afd_watch_t)
     
     return: 0 on success, -1 on failure.(check errno)
 */
-int asock_watch( as_watch_t *w, as_loop_t *loop, int fd, as_evflag_e flg, 
-                 as_watch_cb cb, void *udata );
+int afd_watch( afd_watch_t *w, afd_loop_t *loop, int fd, afd_evflag_e flg, 
+               afd_watch_cb cb, void *udata );
 /*
      ## currently internal use only
 */
-int asock_rewatch( as_watch_t *w, as_loop_t *loop );
+int afd_rewatch( afd_watch_t *w, afd_loop_t *loop );
 /*
-    deregister as_watch_t from event loop.
+    deregister afd_watch_t from event loop.
     
     w   : target event watch data
     loop: registered event loop
 */
-int asock_unwatch( as_watch_t *w, as_loop_t *loop );
+int afd_unwatch( afd_watch_t *w, afd_loop_t *loop );
 /*
-    close socket descriptor and then deregister as_watch_t from event loop.
+    close socket descriptor and then deregister afd_watch_t from event loop.
     
     w   : target event watch data
     loop: registered event loop
 */
-int asock_unwatch_close( as_watch_t *w, as_loop_t *loop );
+int afd_unwatch_close( afd_watch_t *w, afd_loop_t *loop );
 /*
     wait a while occur event and specified timeout
     
     loop    : target event loop
     timeout : if set to NULL wait forever
 */
-int asock_wait( as_loop_t *loop, struct timespec *timeout );
+int afd_wait( afd_loop_t *loop, struct timespec *timeout );
 
 
 /* helper functions */
 
 /*
-    asock_accept(s,addr,len)
+    afd_accept(s,addr,len)
     this is accept wrapper.
     if your system have accept4() then use it and set non-block and cloexec 
     flags.
@@ -203,7 +203,7 @@ int asock_wait( as_loop_t *loop, struct timespec *timeout );
 */
 
 /*
-    asock_accept_chk(c,delay)
+    afd_accept_chk(c,delay)
     this will check returned socket descriptor from accept and 
     to set flags below;
         O_NONBLOCK and FD_CLOEXEC.(if your system does not support accept4)
@@ -211,23 +211,23 @@ int asock_wait( as_loop_t *loop, struct timespec *timeout );
 */
 #ifdef HAVE_ACCEPT4
 
-#define asock_accept(s,addr,len) \
+#define afd_accept(s,addr,len) \
     (accept4(s,addr,len,SOCK_NONBLOCK|SOCK_CLOEXEC))
 
-#define asock_accept_chk(c,delay) \
+#define afd_accept_chk(c,delay) \
     (c == -1) ? -1 : \
     ((delay) ? 1 : \
      !setsockopt(c,IPPROTO_TCP,TCP_NODELAY,&AS_YES,(socklen_t)sizeof(AS_YES)))
 
 #else
 
-#define asock_accept(s,addr,len)    (accept(s,addr,len))
+#define afd_accept(s,addr,len)    (accept(s,addr,len))
 
 // ???: do i really need to set o_nonblock flags for portability?
 //      some documents or comments on a web said that you don't need to set 
 //      that flag when i use kqueue because kevent api will automatically set 
 //      this flag. is that true? i couldn't find that on kernel source...
-#define asock_accept_chk(c,delay) \
+#define afd_accept_chk(c,delay) \
     (c == -1) ? -1 : \
     ((fcntl(c,F_SETFL,O_NONBLOCK) != -1) && \
      (fcntl(c,F_SETFD,FD_CLOEXEC) != -1) && \
@@ -235,26 +235,27 @@ int asock_wait( as_loop_t *loop, struct timespec *timeout );
 
 #endif
 
+
+#ifdef USE_KQUEUE
 /*
-    asock_edge_start()
+    afd_edge_start()
     use this macro before retrieving client data(like read/recv) if you use 
     edge trigger event.
 */
-#define asock_edge_start()
+#define afd_edge_start()
 /*
-    asock_edge_again()
+    afd_edge_again()
     use this macro after retrieving client data(like read/recv) if you use 
     edge trigger event.
 */
-#define asock_edge_again()
+#define afd_edge_again()
+
+#elif USE_EPOLL
 /*
-    implements of asock_edge_start()/asock_edge_again() for epoll
+    implements of afd_edge_start()/afd_edge_again() for epoll
 */
-#ifdef USE_EPOLL
-#undef asock_edge_start
-#undef asock_edge_again
-#define asock_edge_start()    __ASYNCSOCK_EDGE_AGAIN:
-#define asock_edge_again()    goto __ASYNCSOCK_EDGE_AGAIN
+#define afd_edge_start()    __ASYNCFD_EDGE_AGAIN:
+#define afd_edge_again()    goto __ASYNCFD_EDGE_AGAIN
 
 #endif
     

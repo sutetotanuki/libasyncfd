@@ -1,6 +1,6 @@
 AM_CPPFLAGS = -I../src
-check_PROGRAMS = libasyncsock_test
-libasyncsock_test_LDFLAGS = -L../src -lasyncsock
-libasyncsock_test_SOURCES = test.c
+check_PROGRAMS = libasyncfd_test
+libasyncfd_test_LDFLAGS = -L../src -lasyncfd
+libasyncfd_test_SOURCES = test.c
 
-TESTS = libasyncsock_test
+TESTS = libasyncfd_test
