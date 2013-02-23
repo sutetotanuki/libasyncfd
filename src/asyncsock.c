@@ -386,6 +386,7 @@ int asock_rewatch( as_watch_t *w, as_loop_t *loop )
     struct epoll_event evt;
     
     // set udata pointer
+    evt.events = EPOLLRDHUP;
     evt.data.ptr = (void*)w;
 #endif
 
@@ -395,7 +396,7 @@ int asock_rewatch( as_watch_t *w, as_loop_t *loop )
 #ifdef USE_KQUEUE
         EV_SET( &evt, w->fd, EVFILT_READ, EV_ADD, 0, 0, (void*)w );
 #elif USE_EPOLL
-        evt.events = EPOLLIN;
+        evt.events |= EPOLLIN;
 #endif
     }
     else if( flg & AS_EV_WRITE ){
@@ -403,7 +404,7 @@ int asock_rewatch( as_watch_t *w, as_loop_t *loop )
 #ifdef USE_KQUEUE
         EV_SET( &evt, w->fd, EVFILT_WRITE, EV_ADD, 0, 0, (void*)w );
 #elif USE_EPOLL
-        evt.events = EPOLLOUT;
+        evt.events |= EPOLLOUT;
 #endif
     }
     // invalid flag
@@ -525,10 +526,10 @@ int asock_wait( as_loop_t *loop, struct timespec *timeout )
                 w = (as_watch_t*)evt->udata;
                 switch ( evt->filter ) {
                     case EVFILT_READ:
-                        w->cb( loop, w, AS_EV_READ );
+                        w->cb( loop, w, AS_EV_READ, evt->flags & EV_EOF );
                     break;
                     case EVFILT_WRITE:
-                        w->cb( loop, w, AS_EV_WRITE );
+                        w->cb( loop, w, AS_EV_WRITE, evt->flags & EV_EOF );
                     break;
                     default:
                         plog( "unknown event" );
@@ -537,10 +538,10 @@ int asock_wait( as_loop_t *loop, struct timespec *timeout )
 #elif USE_EPOLL
                 w = (as_watch_t*)evt->data.ptr;
                 if( evt->events & EPOLLIN ){
-                    w->cb( loop, w, AS_EV_READ );
+                    w->cb( loop, w, AS_EV_READ, evt->events & EPOLLRDHUP );
                 }
                 else if( evt->events & EPOLLOUT ){
-                    w->cb( loop, w, AS_EV_WRITE );
+                    w->cb( loop, w, AS_EV_WRITE, evt->events & EPOLLRDHUP );
                 }
                 else {
                     plog( "unknown event" );

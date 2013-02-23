@@ -125,7 +125,8 @@ typedef struct _as_watch_t as_watch_t;
 /*
     callback-function prototype of each event types
 */
-typedef void (*as_watch_cb)( as_loop_t*, as_watch_t*, as_evflag_e );
+typedef void (*as_watch_cb)( as_loop_t *loop, as_watch_t *w, as_evflag_e flg, 
+                             int hup );
 /*
     event watch data structure
     

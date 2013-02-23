@@ -44,7 +44,7 @@ static void test_write( as_loop_t *loop, as_watch_t *w, as_evflag_e flg )
     }
 }
 
-static void test_read( as_loop_t *loop, as_watch_t *w, as_evflag_e flg )
+static void test_read( as_loop_t *loop, as_watch_t *w, as_evflag_e flg, int hup )
 {
     char buf[8192];
     size_t blen = 8192;
@@ -71,50 +71,58 @@ static void test_read( as_loop_t *loop, as_watch_t *w, as_evflag_e flg )
 
 }
 
-static void test_rw( as_loop_t *loop, as_watch_t *w, as_evflag_e flg )
+static void test_rw( as_loop_t *loop, as_watch_t *w, as_evflag_e flg, int hup )
 {
-    mydata_t *data = (mydata_t*)w->udata;
-    char buf[8192];
-    size_t blen = 8192;
-    ssize_t len = 0;
-    
-    asock_edge_start();
-    len = read( w->fd, buf, blen );
-    
-    if( len > 0 )
-    {
-        buf[len] = 0;
-        //plog( "test_read: %d", w->fd );
-        data->write = 1;
-        // recv-q test
-        //usleep( 100 );
-        if( send( w->fd, SENDTEST, SENDTEST_LEN, 0 ) != SENDTEST_LEN ){
-            pfelog( send );
-            test_unwatch( loop, w );
-        }
-        else {
-            asock_edge_again();
-        }
-        /*
-        else if( asock_rewatch( w, loop ) ){
-            pfelog( asock_rewatch );
-            test_unwatch( loop, w );
-        }*/
-    }
     // close by peer
-    else if( len == 0 ){
-        plog( "close by peer: %d", w->fd );
+    if( hup ){
+        plog( "hup: close by peer: %d", w->fd );
         test_unwatch( loop, w );
     }
-    else if( errno != EAGAIN || errno != EWOULDBLOCK ){
-        test_unwatch( loop, w );
+    else
+    {
+        mydata_t *data = (mydata_t*)w->udata;
+        char buf[8192];
+        size_t blen = 8192;
+        ssize_t len = 0;
+        
+        asock_edge_start();
+        len = read( w->fd, buf, blen );
+        
+        if( len > 0 )
+        {
+            buf[len] = 0;
+            //plog( "test_read: %d", w->fd );
+            data->write = 1;
+            // recv-q test
+            //usleep( 100 );
+            if( send( w->fd, SENDTEST, SENDTEST_LEN, 0 ) != SENDTEST_LEN ){
+                pfelog( send );
+                test_unwatch( loop, w );
+            }
+            else {
+                asock_edge_again();
+            }
+            /*
+            else if( asock_rewatch( w, loop ) ){
+                pfelog( asock_rewatch );
+                test_unwatch( loop, w );
+            }*/
+        }
+        // close by peer
+        else if( len == 0 ){
+            plog( "read close by peer: %d", w->fd );
+            test_unwatch( loop, w );
+        }
+        else if( errno != EAGAIN || errno != EWOULDBLOCK ){
+            test_unwatch( loop, w );
+        }
+        //else {
+        //    pfelog( read, "back to event" );
+        //}
     }
-    //else {
-    //    pfelog( read, "back to event" );
-    //}
 }
 
-static void test_accept( as_loop_t *loop, as_watch_t *w, as_evflag_e flg )
+static void test_accept( as_loop_t *loop, as_watch_t *w, as_evflag_e flg, int hup )
 {
     int cfd = asock_accept( w->fd, NULL, NULL );
     mydata_t *data = NULL;
