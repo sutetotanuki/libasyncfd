@@ -1,6 +1,6 @@
-#libasyncsock
+#libasyncfd
 
-c asynchronous socket library
+c asynchronous library
 
 ## Install
 
