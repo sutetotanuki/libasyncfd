@@ -22,7 +22,7 @@
 #include <sys/event.h>
 
 #elif USE_EPOLL
-#include <sys/epoll.h>    
+#include <sys/epoll.h>
 
 #else
 #error("unsupported system")

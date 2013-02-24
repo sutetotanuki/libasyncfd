@@ -9,7 +9,7 @@
 
 #include "libasyncfd.h"
 #include "asyncfd_private.h"
-
+#include <stdarg.h>
 #include <stddef.h>
 #include <string.h>
 #include <unistd.h>
@@ -26,10 +26,6 @@
 #define ASYNCSOCK_UNIXPATH_MAX      sizeof(((struct sockaddr_un*)0)->sun_path)
 // port range: 1-65535 + null-terminator
 #define ASYNCSOCK_PORT_LEN          6
-
-#define afd_filefd_init(fd) \
-    ((fcntl(fd,F_SETFL,O_NONBLOCK) != -1) && \
-     (fcntl(fd,F_SETFD,FD_CLOEXEC) != -1))
 
 #define afd_sockfd_init(fd) \
     (afd_filefd_init(fd) && \
@@ -360,112 +356,196 @@ void afd_loop_dealloc( afd_loop_t *loop )
     pdealloc( loop );
 }
 
-int afd_watch( afd_watch_t *w, afd_loop_t *loop, int fd, afd_evflag_e flg, 
-               afd_watch_cb cb, void *udata )
+int afd_watch_init( afd_watch_t *w, int fd, afd_evflag_e flg, afd_watch_cb cb, 
+                    void *udata )
 {
     // valid defined descriptor, flag, callbacks
-    if( fd > 0 && flg && ( flg & AS_EVFLAG_VALID ) == 0 && cb )
+    if( fd > 0 && flg && ( flg & AS_EV_ISVALID ) == 0 && cb )
     {
         // set passed args
         w->fd = fd;
-        w->flg = flg;
+        w->flg = 0;
         w->cb = cb;
         w->udata = udata;
         
-        return afd_rewatch( w, loop );
-    }
-    // invalid arguments
-    errno = EINVAL;
-    
-    return -1;
-}
-
-int afd_rewatch( afd_watch_t *w, afd_loop_t *loop )
-{
-    int flg = w->flg;
+        // init filter
+        // kqueue will catch hang-up event on default.
+        if( flg & AS_EV_EDGE ){
+            flg &= ~AS_EV_EDGE; 
 #ifdef USE_KQUEUE
-    struct kevent evt;
+            w->flg = EV_ADD|EV_CLEAR;
 #elif USE_EPOLL
-    struct epoll_event evt;
-    
-    // set udata pointer
-    evt.events = EPOLLRDHUP;
-    evt.data.ptr = (void*)w;
+            w->filter = EPOLLRDHUP|EPOLLET;
 #endif
-
-    // default level trigger
-    if( flg & AS_EV_READ ){
-        flg &= ~AS_EV_READ;
-#ifdef USE_KQUEUE
-        EV_SET( &evt, w->fd, EVFILT_READ, EV_ADD, 0, 0, (void*)w );
-#elif USE_EPOLL
-        evt.events |= EPOLLIN;
-#endif
-    }
-    else if( flg & AS_EV_WRITE ){
-        flg &= ~AS_EV_WRITE;
-#ifdef USE_KQUEUE
-        EV_SET( &evt, w->fd, EVFILT_WRITE, EV_ADD, 0, 0, (void*)w );
-#elif USE_EPOLL
-        evt.events |= EPOLLOUT;
-#endif
-    }
-    // invalid flag
-    else {
-        errno = EINVAL;
-        return -1;
-    }
-    
-    // set edge trigger if flagged
-    if( flg & AS_EV_EDGE ){
-        flg &= ~AS_EV_EDGE;
-#ifdef USE_KQUEUE
-        evt.flags |= EV_CLEAR;
-        w->flg_kq = evt.flags;
-#elif USE_EPOLL
-        evt.events |= EPOLLET;
-#endif
-    }
-    else {
-        flg &= ~AS_EV_LEVEL;
-#ifdef USE_KQUEUE
-        w->flg_kq = evt.flags;
-#endif
-    }
-    
-    if( !flg )
-    {
-
-        // register event
-#ifdef USE_KQUEUE
-        if( kevent( loop->state->fd, &evt, 1, NULL, 0, NULL ) == -1 )
-#elif USE_EPOLL
-        if( epoll_ctl( loop->state->fd, EPOLL_CTL_ADD, w->fd, &evt ) == -1 )
-#endif
-        {
-            return -1;
         }
-        loop->state->nreg++;
+        else {
+#ifdef USE_KQUEUE
+            w->flg = EV_ADD;
+#elif USE_EPOLL
+            w->filter = EPOLLRDHUP;
+#endif
+        }
         
+        switch( flg )
+        {
+            case AS_EV_READ:
+#ifdef USE_KQUEUE
+                w->filter = EVFILT_READ;
+#elif USE_EPOLL
+                w->filter |= EPOLLIN;
+#endif
+            break;
+            case AS_EV_WRITE:
+#ifdef USE_KQUEUE
+                w->filter = EVFILT_WRITE;
+#elif USE_EPOLL
+                w->filter |= EPOLLOUT;
+#endif
+            break;
+            // invalid argument
+            default:
+                errno = EINVAL;
+                return -1;
+        }
+
         return 0;
     }
     
     // invalid arguments
     errno = EINVAL;
+    
     return -1;
 }
 
-int afd_unwatch( afd_watch_t *w, afd_loop_t *loop )
+int afd_timer_init( afd_watch_t *w, struct timespec *tspec, afd_watch_cb cb, 
+                    void *udata )
+{
+    // valid defined descriptor, flag, callbacks
+    if( tspec && cb )
+    {
+        // set passed args
+        w->cb = cb;
+        w->udata = udata;
+        
+#ifdef USE_KQUEUE
+        w->fd = 0;
+        w->filter = EVFILT_TIMER;
+        w->flg = EV_ADD;
+        w->tspec = (struct timespec){ 
+            .tv_sec = tspec->tv_sec,
+            .tv_nsec = tspec->tv_nsec
+        };
+#elif USE_EPOLL
+        w->flg = AS_EV_TIMER;
+        w->filter = EPOLLRDHUP|EPOLLIN;
+        w->tspec.it_value = (struct timespec){ .tv_sec = 0, .tv_nsec = 0 };
+        w->tspec.it_interval = (struct timespec){
+            .tv_sec = tspec->tv_sec,
+            .tv_nsec = tspec->tv_nsec
+        };
+        w->fd = timerfd_create( CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC );
+        if( w->fd == -1 ){
+            return -1;
+        }
+#endif
+        return 0;
+    }
+    // invalid arguments
+    errno = EINVAL;
+    
+    return -1;
+}
+
+static int _afd_watch( afd_loop_t *loop, afd_watch_t *w )
+{
+    int rc = 0;
+#ifdef USE_KQUEUE
+    struct kevent evt;
+    
+    if( w->filter == EVFILT_TIMER ){
+        EV_SET( &evt, (uintptr_t)w, EVFILT_TIMER, w->flg, NOTE_NSECONDS, 
+                w->tspec.tv_sec * 1000000000 + w->tspec.tv_nsec, (void*)w );
+    }
+    else {
+        EV_SET( &evt, w->fd, w->filter, w->flg, 0, 0, w );
+    }
+    // register event
+    rc = kevent( loop->state->fd, &evt, 1, NULL, 0, NULL );
+
+#elif USE_EPOLL
+    struct epoll_event evt;
+    
+    if( w->flg & AS_EV_TIMER )
+    {
+        struct timespec cur;
+        
+        // get current time
+        if( clock_gettime( CLOCK_MONOTONIC, &cur ) == -1 ){
+            return -1;
+        }
+        // set first invocation time
+        w->tspec.it_value = (struct timespec){ 
+            .tv_sec = cur.tv_sec +  w->tspec.it_interval.tv_sec,
+            .tv_nsec = cur.tv_nsec + w->tspec.it_interval.tv_nsec
+        };
+        if( timerfd_settime( w->fd, TFD_TIMER_ABSTIME, &w->tspec, NULL ) == -1 ){
+            return -1;
+        }
+    }
+    // set udata pointer
+    evt.data.ptr = (void*)w;
+    evt.events = w->filter;
+    // register event
+    rc = epoll_ctl( loop->state->fd, EPOLL_CTL_ADD, w->fd, &evt );
+#endif
+    if( !rc ){
+        loop->state->nreg++;
+    }
+    
+    return rc;
+}
+
+int afd_watch( afd_loop_t *loop, ... )
+{
+    afd_watch_t *w = NULL;
+    va_list args;
+    
+    va_start( args, loop );
+    while( ( w = va_arg( args, afd_watch_t* ) ) )
+    {
+        if( _afd_watch( loop, w ) == -1 ){
+            va_end( args );
+            return -1;
+        }
+    }
+    va_end( args );
+    
+    return 0;
+}
+
+static int _afd_unwatch( afd_loop_t *loop, afd_watch_t *w, int closefd )
 {
 #ifdef USE_KQUEUE
     struct kevent evt;
     
-    EV_SET( &evt, w->fd, w->flg_kq, EV_DELETE, 0, 0, NULL );
+    // use address for ident if kqueue timer event
+    if( w->filter == EVFILT_TIMER ){
+        EV_SET( &evt, (uintptr_t)w, w->filter, EV_DELETE, 0, 0, NULL );
+    }
+    else
+    {
+        EV_SET( &evt, w->fd, w->filter, EV_DELETE, 0, 0, NULL );
+        if( closefd ){
+            shutdown( w->fd, SHUT_RDWR );
+            close( w->fd );
+        }
+    }
+    
     // deregister event
     if( kevent( loop->state->fd, &evt, 1, NULL, 0, NULL ) == -1 ){
         return -1;
     }
-
+    
 #elif USE_EPOLL
     struct epoll_event evt;
     
@@ -473,6 +553,10 @@ int afd_unwatch( afd_watch_t *w, afd_loop_t *loop )
     // do not set null to event argument for portability
     if( epoll_ctl( loop->state->fd, EPOLL_CTL_DEL, w->fd, &evt ) == -1 ){
         return -1;
+    }
+    // use timerfd with epoll
+    else if( closefd ){
+        close( w->fd );
     }
 #endif
     
@@ -482,15 +566,20 @@ int afd_unwatch( afd_watch_t *w, afd_loop_t *loop )
     return 0;
 }
 
-int afd_unwatch_close( afd_watch_t *w, afd_loop_t *loop )
+int afd_unwatch( afd_loop_t *loop, int closefd, ... )
 {
-    // close safely
-    shutdown( w->fd, SHUT_RDWR );
-    close( w->fd );
+    int rc = 0;
+    afd_watch_t *w = NULL;
+    va_list args;
     
-    return afd_unwatch( w, loop );
+    va_start( args, closefd );
+    while( ( w = va_arg( args, afd_watch_t* ) ) ){
+        rc += _afd_unwatch( loop, w, closefd );
+    }
+    va_end( args );
+    
+    return rc;
 }
-
 
 int afd_wait( afd_loop_t *loop, struct timespec *timeout )
 {
@@ -513,14 +602,13 @@ int afd_wait( afd_loop_t *loop, struct timespec *timeout )
         int tval = ( !timeout ) ? -1 :
                      timeout->tv_sec * 1000 + timeout->tv_nsec * 1000;
         int nevt = epoll_pwait( state->fd, state->rcv_evs, state->nreg, tval, 
-                                NULL );
+                              NULL );
 #endif
         
         if( nevt > 0 )
         {
             afd_watch_t *w;
             int i;
-            
             for( i = 0; i < nevt; i++ )
             {
                 evt = &state->rcv_evs[i];
@@ -534,6 +622,9 @@ int afd_wait( afd_loop_t *loop, struct timespec *timeout )
                     case EVFILT_WRITE:
                         w->cb( loop, w, AS_EV_WRITE, evt->flags & EV_EOF );
                     break;
+                    case EVFILT_TIMER:
+                        w->cb( loop, w, AS_EV_TIMER, 0 );
+                    break;
                     default:
                         plog( "unknown event" );
                         break;
@@ -541,10 +632,12 @@ int afd_wait( afd_loop_t *loop, struct timespec *timeout )
 #elif USE_EPOLL
                 w = (afd_watch_t*)evt->data.ptr;
                 if( evt->events & EPOLLIN ){
-                    w->cb( loop, w, AS_EV_READ, evt->events & EPOLLRDHUP );
+                    w->cb( loop, w, AS_EV_READ, 
+                           evt->events & (EPOLLERR|EPOLLRDHUP|EPOLLHUP) );
                 }
                 else if( evt->events & EPOLLOUT ){
-                    w->cb( loop, w, AS_EV_WRITE, evt->events & EPOLLRDHUP );
+                    w->cb( loop, w, AS_EV_WRITE, 
+                           evt->events & (EPOLLERR|EPOLLRDHUP|EPOLLHUP) );
                 }
                 else {
                     plog( "unknown event" );

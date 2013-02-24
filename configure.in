@@ -51,17 +51,30 @@ AC_CHECK_FUNCS(
 )
 
 AC_CHECK_FUNCS( [kqueue kevent],
-    [ AC_DEFINE([USE_KQUEUE], [1], [Define if you have kqueue]) ],
-    [ NO_KQUEUE=1 ]
+    [ AC_DEFINE([USE_KQUEUE], [1], [Define if you have kqueue]) ]
+    [ HAS_KQUEUE=1 ],
+    [ HAS_KQUEUE=0 ]
 )
 AC_CHECK_FUNCS( [epoll_create epoll_create1 epoll_ctl epoll_wait],
-    [ AC_DEFINE([USE_EPOLL], [1], [Define if you have epoll]) ],
-    [ NO_EPOLL=1 ]
+    [ AC_DEFINE([USE_EPOLL], [1], [Define if you have epoll]) ]
+    [ HAS_EPOLL=1 ],
+    [ HAS_EPOLL=0 ]
 )
 AS_IF(
-    [test "$NO_KQUEUE" -a "$NO_EPOLL"],
+    [test $HAS_KQUEUE = 0 -a $HAS_EPOLL = 0 ],
     AC_MSG_FAILURE([kqueue/epoll not found])
 )
+
+AC_CHECK_LIB( rt, clock_gettime, \
+    [ AC_DEFINE([HAVE_RT], [1], [Define if you have rt]) ]
+    [ HAS_RT=1 ],
+    [ HAS_RT=0 ]
+)
+AS_IF( [test $HAS_EPOLL = 1 -a $HAS_RT = 0 ],
+    AC_MSG_FAILURE([librt not found])
+)
+
+
 
 AC_CONFIG_FILES([Makefile \
                  src/Makefile \

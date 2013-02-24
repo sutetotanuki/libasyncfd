@@ -16,12 +16,18 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <time.h>
 
 #ifdef HAVE_CONFIG_H
 #include "asyncfd_config.h"
 #endif
 
+#if USE_EPOLL
+#include <sys/timerfd.h>
+#endif
+
 static const int AS_YES = 1;
+static const int AS_NO = 1;
 
 #define AS_TYPE_STREAM      SOCK_STREAM
 #define AS_TYPE_DGRAM       SOCK_DGRAM
@@ -107,51 +113,55 @@ void afd_loop_dealloc( afd_loop_t *loop );
     event watch flags
 */
 typedef enum {
-    // event trigger flags that will use with event types.
-    // level trigger
-    AS_EV_LEVEL = 1 << 0,
+    // event trigger flags that will use with read or write event types.
+    // default: level trigger
     // edge trigger
-    AS_EV_EDGE = 1 << 1,
+    AS_EV_EDGE = 1 << 0,
     // event types
     // watch read event
-    AS_EV_READ = 1 << 2,
+    AS_EV_READ = 1 << 1,
     // watch write event
-    AS_EV_WRITE = 1 << 3,
+    AS_EV_WRITE = 1 << 2,
+    // watch timer event
+    AS_EV_TIMER = 1 << 3,
     // valid event watch flag
-    AS_EVFLAG_VALID = ~(AS_EV_LEVEL|AS_EV_EDGE|AS_EV_READ|AS_EV_WRITE)
+    AS_EV_ISVALID = ~(AS_EV_EDGE|AS_EV_READ|AS_EV_WRITE)
 } afd_evflag_e;
 
 typedef struct _afd_watch_t afd_watch_t;
-/*
-    callback-function prototype of each event types
-*/
-typedef void (*afd_watch_cb)( afd_loop_t *loop, afd_watch_t *w, afd_evflag_e flg, 
-                              int hup );
+/* callback-function prototype of each event types*/
+typedef void (*afd_watch_cb)( afd_loop_t *loop, afd_watch_t *w, 
+                              afd_evflag_e flg, int hup );
 /*
     event watch data structure
     
     fd      : descrictor(socket)
-    flg_sys : internal event flag(do not touch)
-    flg     : event type flag
+    flg     : actions to perform on the event(if use kqueue)
+              AS_EV_TIMER or 0(if use epoll)
+    filter  : event filter
+    tspec   : timeout interval for timer event
     cb      : callback-function pointer
     udata   : user data pointer
 */
 struct _afd_watch_t {
     int fd;
+    int8_t flg;
 #ifdef USE_KQUEUE
-    int flg_kq;
+    int16_t filter;
+    struct timespec tspec;
+#elif USE_EPOLL
+    uint32_t filter;
+    struct itimerspec tspec;
 #endif
-    afd_evflag_e flg;
     afd_watch_cb cb;
     void *udata;
 };
 
 /*
-    register socket descriptor to event loop.
+    initialize afd_watch_t for read/write event
     
     w       : empty watch data structure(mean not NULL)
-    loop    : target event loop(non NULL)
-    fd      : socket descriptor
+    fd      : descriptor
     flg     : event type flag.(default level trigger)
                 eg: if you want to watch read event with edge trigger;
                     AS_EV_READ|AS_EV_EDGE
@@ -160,26 +170,36 @@ struct _afd_watch_t {
     
     return: 0 on success, -1 on failure.(check errno)
 */
-int afd_watch( afd_watch_t *w, afd_loop_t *loop, int fd, afd_evflag_e flg, 
-               afd_watch_cb cb, void *udata );
+int afd_watch_init( afd_watch_t *w, int fd, afd_evflag_e flg, afd_watch_cb cb, 
+                    void *udata );
 /*
-     ## currently internal use only
+    initialize afd_watch_t for timer event
+    
+    w       : empty watch data structure(mean not NULL)
+    tspec   : timeout interval
+    cb      : callback function on this event
+    udata   : to set a udata of w(afd_watch_t)
+    
+    return: 0 on success, -1 on failure.(check errno)
 */
-int afd_rewatch( afd_watch_t *w, afd_loop_t *loop );
+int afd_timer_init( afd_watch_t *w, struct timespec *tspec, afd_watch_cb cb, 
+                    void *udata );
+/*
+    register afd_watch_t to event loop.
+    
+    loop    : target event loop(non NULL)
+    ...     : initialized afd_watch_t pointers and last argument must be NULL
+    
+    return: 0 on success, -1 on failure.(check errno)
+*/
+int afd_watch( afd_loop_t *loop, ... );
 /*
     deregister afd_watch_t from event loop.
     
-    w   : target event watch data
-    loop: registered event loop
+    loop: target event loop
+    ... : registered afd_watch_t pointers and last argument must be NULL
 */
-int afd_unwatch( afd_watch_t *w, afd_loop_t *loop );
-/*
-    close socket descriptor and then deregister afd_watch_t from event loop.
-    
-    w   : target event watch data
-    loop: registered event loop
-*/
-int afd_unwatch_close( afd_watch_t *w, afd_loop_t *loop );
+int afd_unwatch( afd_loop_t *loop, int closefd, ... );
 /*
     wait a while occur event and specified timeout
     
