@@ -27,9 +27,12 @@
 // port range: 1-65535 + null-terminator
 #define ASYNCSOCK_PORT_LEN          6
 
-#define afd_fd_init(fd) \
+#define afd_filefd_init(fd) \
     ((fcntl(fd,F_SETFL,O_NONBLOCK) != -1) && \
-     (fcntl(fd,F_SETFD,FD_CLOEXEC) != -1) && \
+     (fcntl(fd,F_SETFD,FD_CLOEXEC) != -1))
+
+#define afd_sockfd_init(fd) \
+    (afd_filefd_init(fd) && \
      !setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&AS_YES,(socklen_t)sizeof(AS_YES)))
 
 static afd_sock_t *_asoc_alloc_inet( int type, const char *addr, size_t len )
@@ -108,7 +111,7 @@ static afd_sock_t *_asoc_alloc_inet( int type, const char *addr, size_t len )
                                        ptr->ai_protocol ) ) != -1 )
                     {
                         // init socket descriptor
-                        if( afd_fd_init( fd ) )
+                        if( afd_sockfd_init( fd ) )
                         {
                             struct sockaddr_in *inaddr = palloc( struct sockaddr_in );
                             
@@ -158,7 +161,7 @@ static afd_sock_t *_afd_alloc_unix( int type, const char *path, size_t len )
         if( fd != -1 )
         {
             // init socket descriptor
-            if( afd_fd_init( fd ) )
+            if( afd_sockfd_init( fd ) )
             {
                 afd_sock_t *as = palloc( afd_sock_t );
                 struct sockaddr_un *unaddr = NULL;

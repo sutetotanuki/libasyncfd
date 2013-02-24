@@ -190,6 +190,9 @@ int afd_wait( afd_loop_t *loop, struct timespec *timeout );
 
 
 /* helper functions */
+#define afd_filefd_init(fd) \
+    ((fcntl(fd,F_SETFL,O_NONBLOCK) != -1) && \
+     (fcntl(fd,F_SETFD,FD_CLOEXEC) != -1))
 
 /*
     afd_accept(s,addr,len)
@@ -229,8 +232,7 @@ int afd_wait( afd_loop_t *loop, struct timespec *timeout );
 //      this flag. is that true? i couldn't find that on kernel source...
 #define afd_accept_chk(c,delay) \
     (c == -1) ? -1 : \
-    ((fcntl(c,F_SETFL,O_NONBLOCK) != -1) && \
-     (fcntl(c,F_SETFD,FD_CLOEXEC) != -1) && \
+    (afd_filefd_init(c) && \
      ((delay) ? 1 : !setsockopt(c,IPPROTO_TCP,TCP_NODELAY,&AS_YES,sizeof(int))))
 
 #endif
