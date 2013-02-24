@@ -6,8 +6,8 @@
  *  Copyright 2013 Masatoshi Teruya. All rights reserved.
  *
  */
-#ifndef ___ASYNC_SOCK___
-#define ___ASYNC_SOCK___
+#ifndef ___ASYNCFD___
+#define ___ASYNCFD___
 
 #include <stdint.h>
 #include <sys/time.h>

@@ -7,8 +7,8 @@
  *
  */
 
-#ifndef ___ASYNC_SOCK_PRIVATE___
-#define ___ASYNC_SOCK_PRIVATE___
+#ifndef ___ASYNCFD_PRIVATE___
+#define ___ASYNCFD_PRIVATE___
 
 #include <stdlib.h>
 #include <stdio.h>
