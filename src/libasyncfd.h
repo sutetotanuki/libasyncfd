@@ -255,45 +255,47 @@ int afd_wait( afd_loop_t *loop, struct timespec *timeout );
      (errno == EINPROGRESS))
 
 /*
-    afd_accept(s,addr,len)
-    this is accept wrapper.
-    if your system have accept4() then use it and set non-block and cloexec 
-    flags.
+    afd_accept(c,s,addr,len,delay)
+    afd_accept_unix(c,s,addr,len,delay) for unix domain socket
     
-    s   : listening socket descriptor(int)
-    addr: pointer to struct sockaddr
-    len : pointer to size of addr.
-*/
-
-/*
-    afd_accept_chk(c,delay)
-    this will check returned socket descriptor from accept and 
-    to set flags below;
-        O_NONBLOCK and FD_CLOEXEC.(if your system does not support accept4)
-        TCP_NODELAY. (if delay specified to 0)
+    NOTE: if your system have accept4() then use it and set non-block and 
+          cloexec flags.
+    
+    c       : client socket pointer
+    s       : listening socket descriptor(int)
+    addr    : pointer to struct sockaddr
+    len     : pointer to size of addr.
+    
+    afd_accept():
+        delay   : set TCP_NODELAY (if delay specified to 0)
+    
+    return: 1 on success
+            -1 on failure to accept client socket
+            0 on failure to set flags
 */
 #ifdef HAVE_ACCEPT4
 
-#define afd_accept(s,addr,len) \
-    (accept4(s,addr,len,SOCK_NONBLOCK|SOCK_CLOEXEC))
+#define afd_accept(c,s,addr,len,delay) \
+    ((*c = accept4(s,addr,len,SOCK_NONBLOCK|SOCK_CLOEXEC)) == -1 ) ? -1 : \
+     (delay ? 1 : \
+      !setsockopt(*c,IPPROTO_TCP,TCP_NODELAY,&AS_YES,(socklen_t)sizeof(AS_YES)))
 
-#define afd_accept_chk(c,delay) \
-    (c == -1) ? -1 : \
-    ((delay) ? 1 : \
-     !setsockopt(c,IPPROTO_TCP,TCP_NODELAY,&AS_YES,(socklen_t)sizeof(AS_YES)))
+#define afd_accept_unix(c,s,addr,len) \
+    ((*c = accept4(s,addr,len,SOCK_NONBLOCK|SOCK_CLOEXEC) == -1 ) ? -1 : 1)
 
 #else
-
-#define afd_accept(s,addr,len)    (accept(s,addr,len))
 
 // ???: do i really need to set o_nonblock flags for portability?
 //      some documents or comments on a web said that you don't need to set 
 //      that flag when i use kqueue because kevent api will automatically set 
 //      this flag. is that true? i couldn't find that on kernel source...
-#define afd_accept_chk(c,delay) \
-    (c == -1) ? -1 : \
-    (afd_filefd_init(c) && \
-     ((delay) ? 1 : !setsockopt(c,IPPROTO_TCP,TCP_NODELAY,&AS_YES,sizeof(int))))
+#define afd_accept(c,s,addr,len,delay) \
+    ((*c = accept(s,addr,len)) == -1 ) ? -1 : \
+     (afd_filefd_init(*c) && (delay ? 1 : \
+      !setsockopt(*c,IPPROTO_TCP,TCP_NODELAY,&AS_YES,sizeof(int))))
+
+#define afd_accept_unix(c,s,addr,len) \
+    ((*c = accept(s,addr,len)) == -1 ) ? -1 : (afd_filefd_init(*c))
 
 #endif
 
