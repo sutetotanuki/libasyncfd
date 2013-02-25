@@ -527,21 +527,25 @@ int afd_unwatch( afd_loop_t *loop, int closefd, afd_watch_t *w )
     struct kevent evt;
     
     // use address for ident if kqueue timer event
-    if( w->filter == EVFILT_TIMER ){
+    if( w->filter == EVFILT_TIMER )
+    {
         EV_SET( &evt, (uintptr_t)w, w->filter, EV_DELETE, 0, 0, NULL );
+        // deregister event
+        if( kevent( loop->state->fd, &evt, 1, NULL, 0, NULL ) == -1 ){
+            return -1;
+        }
     }
     else
     {
         EV_SET( &evt, w->fd, w->filter, EV_DELETE, 0, 0, NULL );
-        if( closefd ){
+        // deregister event
+        if( kevent( loop->state->fd, &evt, 1, NULL, 0, NULL ) == -1 ){
+            return -1;
+        }
+        else if( closefd ){
             shutdown( w->fd, SHUT_RDWR );
             close( w->fd );
         }
-    }
-    
-    // deregister event
-    if( kevent( loop->state->fd, &evt, 1, NULL, 0, NULL ) == -1 ){
-        return -1;
     }
     
 #elif USE_EPOLL
