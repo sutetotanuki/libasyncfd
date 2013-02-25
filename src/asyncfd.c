@@ -467,7 +467,7 @@ static int _afd_watch( afd_loop_t *loop, afd_watch_t *w )
                 w->tspec.tv_sec * 1000000000 + w->tspec.tv_nsec, (void*)w );
     }
     else {
-        EV_SET( &evt, w->fd, w->filter, w->flg, 0, 0, w );
+        EV_SET( &evt, w->fd, w->filter, w->flg, 0, 0, (void*)w );
     }
     // register event
     rc = kevent( loop->state->fd, &evt, 1, NULL, 0, NULL );

@@ -195,6 +195,8 @@ int afd_watch( afd_loop_t *loop, ... );
     
     loop: target event loop
     ... : registered afd_watch_t pointers and last argument must be NULL
+    
+    return: 0 on success, or less then 0 on failure.(check errno)
 */
 int afd_unwatch( afd_loop_t *loop, int closefd, ... );
 /*
@@ -210,6 +212,15 @@ int afd_wait( afd_loop_t *loop, struct timespec *timeout );
 #define afd_filefd_init(fd) \
     ((fcntl(fd,F_SETFL,O_NONBLOCK) != -1) && \
      (fcntl(fd,F_SETFD,FD_CLOEXEC) != -1))
+
+/*
+    afd_connect(as)
+    connect wrapper.
+    
+    as   : afd_sock_t for connect
+*/
+#define afd_connect(as) \
+    connect(as->fd,(struct sockaddr*)as->addr,(socklen_t)as->addrlen)
 
 /*
     afd_accept(s,addr,len)
