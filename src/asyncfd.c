@@ -27,11 +27,7 @@
 // port range: 1-65535 + null-terminator
 #define ASYNCSOCK_PORT_LEN          6
 
-#define afd_sockfd_init(fd) \
-    (afd_filefd_init(fd) && \
-     !setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&AS_YES,(socklen_t)sizeof(AS_YES)))
-
-static afd_sock_t *_asoc_alloc_inet( int type, const char *addr, size_t len )
+static afd_sock_t *_afd_sock_alloc_inet( int type, const char *addr, size_t len )
 {
     if( len < ASYNCSOCK_INETPATH_MAX )
     {
@@ -113,8 +109,9 @@ static afd_sock_t *_asoc_alloc_inet( int type, const char *addr, size_t len )
                             
                             if( inaddr && ( as = palloc( afd_sock_t ) ) ){
                                 as->fd = fd;
-                                as->proto = PF_INET;
-                                as->type = type;
+                                as->family = ptr->ai_family;
+                                as->type = ptr->ai_socktype;
+                                as->proto = ptr->ai_protocol;
                                 as->addrlen = ptr->ai_addrlen;
                                 as->addr = (void*)inaddr;
                                 // copy struct sockaddr
@@ -146,7 +143,7 @@ static afd_sock_t *_asoc_alloc_inet( int type, const char *addr, size_t len )
     return NULL;
 }
 
-static afd_sock_t *_afd_alloc_unix( int type, const char *path, size_t len )
+static afd_sock_t *_afd_sock_alloc_unix( int type, const char *path, size_t len )
 {
     // length too large
     if( len < ASYNCSOCK_UNIXPATH_MAX )
@@ -164,8 +161,9 @@ static afd_sock_t *_afd_alloc_unix( int type, const char *path, size_t len )
                 
                 if( as && ( unaddr = palloc( struct sockaddr_un ) ) ){
                     as->fd = fd;
-                    as->proto = PF_UNIX;
+                    as->family = PF_UNIX;
                     as->type = type;
+                    as->proto = 0;
                     as->addrlen = sizeof( struct sockaddr_un ) + len;
                     as->addr = (void*)unaddr;
                     unaddr->sun_family = AF_UNIX;
@@ -202,11 +200,11 @@ afd_sock_t *afd_sock_alloc( const char *addr, size_t len, int type )
         // check scheme
         // inet addr
         if( strncmp( "inet", addr, 4 ) == 0 ){
-            return _asoc_alloc_inet( type, delim, len );
+            return _afd_sock_alloc_inet( type, delim, len );
         }
         // unix domain socket
         else if( strncmp( "unix", addr, 4 ) == 0 ){
-            return _afd_alloc_unix( type, delim, len );
+            return _afd_sock_alloc_unix( type, delim, len );
         }
         // unknown scheme
         // errno = EPROTONOSUPPORT;

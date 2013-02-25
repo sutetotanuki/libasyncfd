@@ -33,10 +33,12 @@ static const int AS_NO = 0;
 typedef struct {
     // socket descriptor
     int32_t fd;
-    // type of protocol: PF_UNIX|PF_INET
-    int proto;
+    // type of protocol family
+    int family;
     // socket type: SOCK_STREAM|SOCK_DGRAM|SOCK_SEQPACKET
     int type;
+    // type of protocol: PF_UNIX|PF_INET
+    int proto;
     // opaque address byte length
     size_t addrlen;
     // opaque address 
@@ -234,6 +236,14 @@ int afd_wait( afd_loop_t *loop, struct timespec *timeout );
     ((fcntl(fd,F_SETFL,O_NONBLOCK) != -1) && \
      (fcntl(fd,F_SETFD,FD_CLOEXEC) != -1))
 
+#define afd_sockfd_init(fd) \
+    (afd_filefd_init(fd) && \
+     !setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&AS_YES,(socklen_t)sizeof(AS_YES)))
+
+#define afd_socket(as) \
+    (((as->fd = socket(as->family,as->type,as->proto)) > 0) && \
+     afd_sockfd_init(as->fd))
+
 /*
     afd_connect(as)
     connect wrapper.
@@ -241,7 +251,8 @@ int afd_wait( afd_loop_t *loop, struct timespec *timeout );
     as   : afd_sock_t for connect
 */
 #define afd_connect(as) \
-    connect(as->fd,(struct sockaddr*)as->addr,(socklen_t)as->addrlen)
+    (!connect(as->fd,(struct sockaddr*)as->addr,(socklen_t)as->addrlen) || \
+     (errno == EINPROGRESS))
 
 /*
     afd_accept(s,addr,len)
