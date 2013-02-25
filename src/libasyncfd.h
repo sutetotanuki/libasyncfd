@@ -17,10 +17,7 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <time.h>
-
-#ifdef HAVE_CONFIG_H
-#include "asyncfd_config.h"
-#endif
+#include "libasyncfd_config.h"
 
 #if USE_EPOLL
 #include <sys/timerfd.h>

@@ -13,10 +13,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
-
-#ifdef HAVE_CONFIG_H
-#include "asyncfd_config.h"
-#endif
+#include "libasyncfd_config.h"
 
 #ifdef USE_KQUEUE
 #include <sys/event.h>
