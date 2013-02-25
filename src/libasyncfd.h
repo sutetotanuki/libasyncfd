@@ -184,12 +184,32 @@ int afd_timer_init( afd_watch_t *w, struct timespec *tspec, afd_watch_cb cb,
 /*
     register afd_watch_t to event loop.
     
+    loop: target event loop(non NULL)
+    w   : initialized afd_watch_t pointer
+    
+    return: 0 on success, -1 on failure.(check errno)
+*/
+int afd_watch( afd_loop_t *loop, afd_watch_t *w );
+/*
+    register afd_watch_t to event loop.
+    
     loop    : target event loop(non NULL)
     ...     : initialized afd_watch_t pointers and last argument must be NULL
     
     return: 0 on success, -1 on failure.(check errno)
 */
-int afd_watch( afd_loop_t *loop, ... );
+int afd_nwatch( afd_loop_t *loop, ... );
+
+/*
+    deregister afd_watch_t from event loop.
+    
+    loop    : target event loop
+    closefd : 1 on close descriptor and deregistered w from event loop
+    w       : registered afd_watch_t pointer
+    
+    return: 0 on success, or -1 on failure.(check errno)
+*/
+int afd_unwatch( afd_loop_t *loop, int closefd, afd_watch_t *w );
 /*
     deregister afd_watch_t from event loop.
     
@@ -198,7 +218,8 @@ int afd_watch( afd_loop_t *loop, ... );
     
     return: 0 on success, or less then 0 on failure.(check errno)
 */
-int afd_unwatch( afd_loop_t *loop, int closefd, ... );
+int afd_unnwatch( afd_loop_t *loop, int closefd, ... );
+
 /*
     wait a while occur event and specified timeout
     

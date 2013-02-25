@@ -456,7 +456,7 @@ int afd_timer_init( afd_watch_t *w, struct timespec *tspec, afd_watch_cb cb,
     return -1;
 }
 
-static int _afd_watch( afd_loop_t *loop, afd_watch_t *w )
+int afd_watch( afd_loop_t *loop, afd_watch_t *w )
 {
     int rc = 0;
 #ifdef USE_KQUEUE
@@ -505,7 +505,7 @@ static int _afd_watch( afd_loop_t *loop, afd_watch_t *w )
     return rc;
 }
 
-int afd_watch( afd_loop_t *loop, ... )
+int afd_nwatch( afd_loop_t *loop, ... )
 {
     afd_watch_t *w = NULL;
     va_list args;
@@ -513,7 +513,7 @@ int afd_watch( afd_loop_t *loop, ... )
     va_start( args, loop );
     while( ( w = va_arg( args, afd_watch_t* ) ) )
     {
-        if( _afd_watch( loop, w ) == -1 ){
+        if( afd_watch( loop, w ) == -1 ){
             va_end( args );
             return -1;
         }
@@ -523,7 +523,7 @@ int afd_watch( afd_loop_t *loop, ... )
     return 0;
 }
 
-static int _afd_unwatch( afd_loop_t *loop, afd_watch_t *w, int closefd )
+int afd_unwatch( afd_loop_t *loop, int closefd, afd_watch_t *w )
 {
 #ifdef USE_KQUEUE
     struct kevent evt;
@@ -566,7 +566,7 @@ static int _afd_unwatch( afd_loop_t *loop, afd_watch_t *w, int closefd )
     return 0;
 }
 
-int afd_unwatch( afd_loop_t *loop, int closefd, ... )
+int afd_unnwatch( afd_loop_t *loop, int closefd, ... )
 {
     int rc = 0;
     afd_watch_t *w = NULL;
