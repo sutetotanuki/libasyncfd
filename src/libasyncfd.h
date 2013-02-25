@@ -24,7 +24,7 @@
 #endif
 
 static const int AS_YES = 1;
-static const int AS_NO = 1;
+static const int AS_NO = 0;
 
 #define AS_TYPE_STREAM      SOCK_STREAM
 #define AS_TYPE_DGRAM       SOCK_DGRAM
