@@ -554,6 +554,7 @@ int afd_unwatch( afd_loop_t *loop, int closefd, afd_watch_t *w )
     }
     // use timerfd with epoll
     else if( closefd ){
+        shutdown( w->fd, SHUT_RDWR );
         close( w->fd );
     }
 #endif
