@@ -574,7 +574,7 @@ int afd_unnwatch( afd_loop_t *loop, int closefd, ... )
     
     va_start( args, closefd );
     while( ( w = va_arg( args, afd_watch_t* ) ) ){
-        rc += _afd_unwatch( loop, w, closefd );
+        rc += afd_unwatch( loop, closefd, w );
     }
     va_end( args );
     
