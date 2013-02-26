@@ -156,17 +156,18 @@ typedef void (*afd_watch_cb)( afd_loop_t *loop, afd_watch_t *w,
 /*
     event watch data structure
     
-    fd      : descrictor(socket)
-    flg     : actions to perform on the event(if use kqueue)
-              AS_EV_TIMER or 0(if use epoll)
-    filter  : event filter
-    tspec   : timeout interval for timer event
-    cb      : callback-function pointer
+    fd      : descrictor
+    flg     : event flag(AS_EV_READ or AS_EV_WRITE or AS_EV_TIMER)
+    fflg    : event filter flag (internal use)
+    filter  : event filter (internal use)
+    tspec   : timeout interval for timer event (internal use)
+    cb      : callback-function pointer (internal use)
     udata   : user data pointer
 */
 struct _afd_watch_t {
     int fd;
-    int8_t flg;
+    uint8_t flg;
+    uint32_t fflg;
 #ifdef USE_KQUEUE
     int16_t filter;
     struct timespec tspec;

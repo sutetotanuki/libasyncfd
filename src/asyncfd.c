@@ -355,7 +355,7 @@ void afd_loop_dealloc( afd_loop_t *loop )
     pdealloc( loop );
 }
 
-static int _afd_loop( afd_loop_t *loop, struct timespec *tval )
+static int _afd_loop( afd_loop_t *loop, struct timespec *timeout )
 {
     afd_state_t *state = loop->state;
     afd_watch_t *w;
@@ -363,6 +363,7 @@ static int _afd_loop( afd_loop_t *loop, struct timespec *tval )
     int i = 0;
 #ifdef USE_KQUEUE
     struct kevent *evt = NULL;
+    struct timespec *tval = timeout;
 #elif USE_EPOLL
     struct epoll_event *evt = NULL;
     int tval = ( !timeout ) ? -1 : 
@@ -384,34 +385,24 @@ static int _afd_loop( afd_loop_t *loop, struct timespec *tval )
                 evt = &state->rcv_evs[i];
 #ifdef USE_KQUEUE
                 w = (afd_watch_t*)evt->udata;
-                switch ( evt->filter ) {
-                    case EVFILT_READ:
-                        w->cb( loop, w, AS_EV_READ, evt->flags & EV_EOF );
-                    break;
-                    case EVFILT_WRITE:
-                        w->cb( loop, w, AS_EV_WRITE, evt->flags & EV_EOF );
-                    break;
-                    case EVFILT_TIMER:
-                        w->cb( loop, w, AS_EV_TIMER, 0 );
+#elif USE_EPOLL
+                w = (afd_watch_t*)evt->data.ptr;
+#endif
+                switch( w->flg ) {
+                    case AS_EV_READ:
+                    case AS_EV_WRITE:
+                    case AS_EV_TIMER:
+#ifdef USE_KQUEUE
+                        w->cb( loop, w, w->flg, evt->flags & EV_EOF );
+#elif USE_EPOLL
+                        w->cb( loop, w, w->flg, 
+                               evt->events & (EPOLLERR|EPOLLRDHUP|EPOLLHUP) );
+#endif
                     break;
                     default:
                         plog( "unknown event" );
                         break;
                 }
-#elif USE_EPOLL
-                w = (afd_watch_t*)evt->data.ptr;
-                if( evt->events & EPOLLIN ){
-                    w->cb( loop, w, AS_EV_READ, 
-                           evt->events & (EPOLLERR|EPOLLRDHUP|EPOLLHUP) );
-                }
-                else if( evt->events & EPOLLOUT ){
-                    w->cb( loop, w, AS_EV_WRITE, 
-                           evt->events & (EPOLLERR|EPOLLRDHUP|EPOLLHUP) );
-                }
-                else {
-                    plog( "unknown event" );
-                }
-#endif
             }
         }
         else if( nevt == -1 ){
@@ -466,6 +457,7 @@ int afd_watch_init( afd_watch_t *w, int fd, afd_evflag_e flg, afd_watch_cb cb,
         // set passed args
         w->fd = fd;
         w->flg = 0;
+        w->fflg = 0;
         w->cb = cb;
         w->udata = udata;
         
@@ -474,14 +466,14 @@ int afd_watch_init( afd_watch_t *w, int fd, afd_evflag_e flg, afd_watch_cb cb,
         if( flg & AS_EV_EDGE ){
             flg &= ~AS_EV_EDGE; 
 #ifdef USE_KQUEUE
-            w->flg = EV_ADD|EV_CLEAR;
+            w->fflg = EV_ADD|EV_CLEAR;
 #elif USE_EPOLL
             w->filter = EPOLLRDHUP|EPOLLET;
 #endif
         }
         else {
 #ifdef USE_KQUEUE
-            w->flg = EV_ADD;
+            w->fflg = EV_ADD;
 #elif USE_EPOLL
             w->filter = EPOLLRDHUP;
 #endif
@@ -508,6 +500,8 @@ int afd_watch_init( afd_watch_t *w, int fd, afd_evflag_e flg, afd_watch_cb cb,
                 errno = EINVAL;
                 return -1;
         }
+        // set valid flag
+        w->flg = flg;
 
         return 0;
     }
@@ -527,11 +521,12 @@ int afd_timer_init( afd_watch_t *w, struct timespec *tspec, afd_watch_cb cb,
         // set passed args
         w->cb = cb;
         w->udata = udata;
+        w->flg = AS_EV_TIMER;
         
 #ifdef USE_KQUEUE
         w->fd = 0;
         w->filter = EVFILT_TIMER;
-        w->flg = EV_ADD;
+        w->fflg = EV_ADD;
         w->tspec = (struct timespec){ 
             .tv_sec = tspec->tv_sec,
             .tv_nsec = tspec->tv_nsec
@@ -564,11 +559,11 @@ int afd_watch( afd_loop_t *loop, afd_watch_t *w )
     struct kevent evt;
     
     if( w->filter == EVFILT_TIMER ){
-        EV_SET( &evt, (uintptr_t)w, EVFILT_TIMER, w->flg, NOTE_NSECONDS, 
+        EV_SET( &evt, (uintptr_t)w, EVFILT_TIMER, w->fflg, NOTE_NSECONDS, 
                 w->tspec.tv_sec * 1000000000 + w->tspec.tv_nsec, (void*)w );
     }
     else {
-        EV_SET( &evt, w->fd, w->filter, w->flg, 0, 0, (void*)w );
+        EV_SET( &evt, w->fd, w->filter, w->fflg, 0, 0, (void*)w );
     }
     // register event
     rc = kevent( loop->state->fd, &evt, 1, NULL, 0, NULL );
