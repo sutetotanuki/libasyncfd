@@ -296,13 +296,12 @@ static afd_state_t *_afd_state_alloc( int32_t nevs, afd_loop_cleanup_cb cb,
 static int _afd_state_realloc( afd_state_t *state, int32_t nevs )
 {
 #ifdef USE_KQUEUE
-    struct kevent *evs = pnalloc( nevs, struct kevent );
+    struct kevent *evs = prealloc( nevs, struct kevent, state->rcv_evs );
 #elif USE_EPOLL
-    struct epoll_event *evs = pnalloc( nevs, struct epoll_event );
+    struct epoll_event *evs = prealloc( nevs, struct epoll_event, state->rcv_evs );
 #endif
     
     if( evs ){
-        pdealloc( state->rcv_evs );
         state->rcv_evs = evs;
         state->nrcv = nevs;
         return 0;
@@ -496,8 +495,11 @@ int afd_watch( afd_loop_t *loop, afd_watch_t *w )
     // register event
     rc = epoll_ctl( loop->state->fd, EPOLL_CTL_ADD, w->fd, &evt );
 #endif
-    if( !rc ){
-        loop->state->nreg++;
+    // realloc receive events container
+    if( !rc && 
+        ++loop->state->nreg > loop->state->nrcv && 
+        _afd_state_realloc( loop->state, loop->state->nreg ) == -1 ){
+        return -1;
     }
     
     return rc;
@@ -588,68 +590,60 @@ int afd_wait( afd_loop_t *loop, struct timespec *timeout )
 {
     afd_state_t *state = loop->state;
     
-    // realloc receive events container
-    if( state->nreg > state->nrcv && 
-        _afd_state_realloc( state, state->nreg ) == -1 ){
-        return -1;
-    }
-    else
-    {
 #ifdef USE_KQUEUE
-        struct kevent *evt = NULL;
-        int nevt = kevent( state->fd, NULL, 0, state->rcv_evs, state->nreg, 
-                           timeout );
+    struct kevent *evt = NULL;
+    int nevt = kevent( state->fd, NULL, 0, state->rcv_evs, state->nreg, timeout );
 
 #elif USE_EPOLL
-        struct epoll_event *evt = NULL;
-        int tval = ( !timeout ) ? -1 :
-                     timeout->tv_sec * 1000 + timeout->tv_nsec * 1000;
-        int nevt = epoll_pwait( state->fd, state->rcv_evs, state->nreg, tval, 
-                              NULL );
+    struct epoll_event *evt = NULL;
+    int tval = ( !timeout ) ? -1 : 
+                timeout->tv_sec * 1000 + timeout->tv_nsec * 1000;
+    int nevt = epoll_pwait( state->fd, state->rcv_evs, state->nreg, tval, NULL );
 #endif
-        
-        if( nevt > 0 )
+    
+    if( nevt > 0 )
+    {
+        afd_watch_t *w;
+        int i;
+        for( i = 0; i < nevt; i++ )
         {
-            afd_watch_t *w;
-            int i;
-            for( i = 0; i < nevt; i++ )
-            {
-                evt = &state->rcv_evs[i];
-                
+            evt = &state->rcv_evs[i];
+            
 #ifdef USE_KQUEUE
-                w = (afd_watch_t*)evt->udata;
-                switch ( evt->filter ) {
-                    case EVFILT_READ:
-                        w->cb( loop, w, AS_EV_READ, evt->flags & EV_EOF );
-                    break;
-                    case EVFILT_WRITE:
-                        w->cb( loop, w, AS_EV_WRITE, evt->flags & EV_EOF );
-                    break;
-                    case EVFILT_TIMER:
-                        w->cb( loop, w, AS_EV_TIMER, 0 );
-                    break;
-                    default:
-                        plog( "unknown event" );
-                        break;
-                }
-#elif USE_EPOLL
-                w = (afd_watch_t*)evt->data.ptr;
-                if( evt->events & EPOLLIN ){
-                    w->cb( loop, w, AS_EV_READ, 
-                           evt->events & (EPOLLERR|EPOLLRDHUP|EPOLLHUP) );
-                }
-                else if( evt->events & EPOLLOUT ){
-                    w->cb( loop, w, AS_EV_WRITE, 
-                           evt->events & (EPOLLERR|EPOLLRDHUP|EPOLLHUP) );
-                }
-                else {
+            w = (afd_watch_t*)evt->udata;
+            switch ( evt->filter ) {
+                case EVFILT_READ:
+                    w->cb( loop, w, AS_EV_READ, evt->flags & EV_EOF );
+                break;
+                case EVFILT_WRITE:
+                    w->cb( loop, w, AS_EV_WRITE, evt->flags & EV_EOF );
+                break;
+                case EVFILT_TIMER:
+                    w->cb( loop, w, AS_EV_TIMER, 0 );
+                break;
+                default:
                     plog( "unknown event" );
-                }
-#endif
+                    break;
             }
+#elif USE_EPOLL
+            w = (afd_watch_t*)evt->data.ptr;
+            if( evt->events & EPOLLIN ){
+                w->cb( loop, w, AS_EV_READ, 
+                       evt->events & (EPOLLERR|EPOLLRDHUP|EPOLLHUP) );
+            }
+            else if( evt->events & EPOLLOUT ){
+                w->cb( loop, w, AS_EV_WRITE, 
+                       evt->events & (EPOLLERR|EPOLLRDHUP|EPOLLHUP) );
+            }
+            else {
+                plog( "unknown event" );
+            }
+#endif
         }
-        
-        return nevt;
     }
+    
+    return nevt;
 }
+
+
 
