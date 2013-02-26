@@ -525,6 +525,7 @@ int afd_nwatch( afd_loop_t *loop, ... )
 
 int afd_unwatch( afd_loop_t *loop, int closefd, afd_watch_t *w )
 {
+    int rc = 0;
 #ifdef USE_KQUEUE
     struct kevent evt;
     
@@ -533,18 +534,14 @@ int afd_unwatch( afd_loop_t *loop, int closefd, afd_watch_t *w )
     {
         EV_SET( &evt, (uintptr_t)w, w->filter, EV_DELETE, 0, 0, NULL );
         // deregister event
-        if( kevent( loop->state->fd, &evt, 1, NULL, 0, NULL ) == -1 ){
-            return -1;
-        }
+        rc = kevent( loop->state->fd, &evt, 1, NULL, 0, NULL );
     }
     else
     {
         EV_SET( &evt, w->fd, w->filter, EV_DELETE, 0, 0, NULL );
         // deregister event
-        if( kevent( loop->state->fd, &evt, 1, NULL, 0, NULL ) == -1 ){
-            return -1;
-        }
-        else if( closefd ){
+        rc = kevent( loop->state->fd, &evt, 1, NULL, 0, NULL );
+        if( closefd ){
             shutdown( w->fd, SHUT_RDWR );
             close( w->fd );
         }
@@ -555,18 +552,18 @@ int afd_unwatch( afd_loop_t *loop, int closefd, afd_watch_t *w )
     
     // deregister event
     // do not set null to event argument for portability
-    if( epoll_ctl( loop->state->fd, EPOLL_CTL_DEL, w->fd, &evt ) == -1 ){
-        return -1;
-    }
+    rc = epoll_ctl( loop->state->fd, EPOLL_CTL_DEL, w->fd, &evt );
     // use timerfd with epoll
-    else if( closefd ){
+    if( closefd ){
         shutdown( w->fd, SHUT_RDWR );
         close( w->fd );
     }
 #endif
     
     // decrement number of registered event
-    loop->state->nreg--;
+    if( !rc ){
+        loop->state->nreg--;
+    }
     
     return 0;
 }
