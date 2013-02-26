@@ -253,6 +253,7 @@ struct _afd_state_t {
     int32_t nrcv;
     int32_t nreg;
     int32_t fd;
+    int running;
     afd_loop_cleanup_cb cleanup;
     void *udata;
 };
@@ -281,6 +282,7 @@ static afd_state_t *_afd_state_alloc( int32_t nevs, afd_loop_cleanup_cb cb,
         ){
             state->nrcv = nevs;
             state->nreg = 0;
+            state->running = 0;
             state->cleanup = cb;
             return state;
         }
@@ -352,6 +354,108 @@ void afd_loop_dealloc( afd_loop_t *loop )
     _afd_state_dealloc( loop->state );
     pdealloc( loop );
 }
+
+static int _afd_loop( afd_loop_t *loop, struct timespec *tval )
+{
+    afd_state_t *state = loop->state;
+    afd_watch_t *w;
+    int nevt = 0;
+    int i = 0;
+#ifdef USE_KQUEUE
+    struct kevent *evt = NULL;
+#elif USE_EPOLL
+    struct epoll_event *evt = NULL;
+    int tval = ( !timeout ) ? -1 : 
+                timeout->tv_sec * 1000 + timeout->tv_nsec * 1000;
+#endif
+
+    do
+    {
+#ifdef USE_KQUEUE
+        nevt = kevent( state->fd, NULL, 0, state->rcv_evs, state->nreg, tval );
+
+#elif USE_EPOLL
+        nevt = epoll_pwait( state->fd, state->rcv_evs, state->nreg, tval, NULL );
+#endif
+        if( nevt > 0 )
+        {
+            for( i = 0; i < nevt; i++ )
+            {
+                evt = &state->rcv_evs[i];
+#ifdef USE_KQUEUE
+                w = (afd_watch_t*)evt->udata;
+                switch ( evt->filter ) {
+                    case EVFILT_READ:
+                        w->cb( loop, w, AS_EV_READ, evt->flags & EV_EOF );
+                    break;
+                    case EVFILT_WRITE:
+                        w->cb( loop, w, AS_EV_WRITE, evt->flags & EV_EOF );
+                    break;
+                    case EVFILT_TIMER:
+                        w->cb( loop, w, AS_EV_TIMER, 0 );
+                    break;
+                    default:
+                        plog( "unknown event" );
+                        break;
+                }
+#elif USE_EPOLL
+                w = (afd_watch_t*)evt->data.ptr;
+                if( evt->events & EPOLLIN ){
+                    w->cb( loop, w, AS_EV_READ, 
+                           evt->events & (EPOLLERR|EPOLLRDHUP|EPOLLHUP) );
+                }
+                else if( evt->events & EPOLLOUT ){
+                    w->cb( loop, w, AS_EV_WRITE, 
+                           evt->events & (EPOLLERR|EPOLLRDHUP|EPOLLHUP) );
+                }
+                else {
+                    plog( "unknown event" );
+                }
+#endif
+            }
+        }
+        else if( nevt == -1 ){
+            break;
+        }
+    
+    } while( state->running );
+    
+    return nevt;
+}
+
+
+int afd_loop( afd_loop_t *loop )
+{
+    if( !loop->state->running ){
+        struct timespec timeout = { 1, 0 };
+        
+        loop->state->running = 1;
+        return _afd_loop( loop, &timeout );
+    }
+    
+    // already running
+    errno = EALREADY;
+    return -1;
+}
+
+
+int afd_loop_once( afd_loop_t *loop, struct timespec *timeout )
+{
+    if( !loop->state->running ){
+        return _afd_loop( loop, timeout );
+    }
+    
+    // already running
+    errno = EALREADY;
+    return -1;
+}
+
+
+void afd_unloop( afd_loop_t *loop )
+{
+    loop->state->running = 0;
+}
+
 
 int afd_watch_init( afd_watch_t *w, int fd, afd_evflag_e flg, afd_watch_cb cb, 
                     void *udata )
@@ -581,65 +685,6 @@ int afd_unnwatch( afd_loop_t *loop, int closefd, ... )
     va_end( args );
     
     return rc;
-}
-
-int afd_wait( afd_loop_t *loop, struct timespec *timeout )
-{
-    afd_state_t *state = loop->state;
-    
-#ifdef USE_KQUEUE
-    struct kevent *evt = NULL;
-    int nevt = kevent( state->fd, NULL, 0, state->rcv_evs, state->nreg, timeout );
-
-#elif USE_EPOLL
-    struct epoll_event *evt = NULL;
-    int tval = ( !timeout ) ? -1 : 
-                timeout->tv_sec * 1000 + timeout->tv_nsec * 1000;
-    int nevt = epoll_pwait( state->fd, state->rcv_evs, state->nreg, tval, NULL );
-#endif
-    
-    if( nevt > 0 )
-    {
-        afd_watch_t *w;
-        int i;
-        for( i = 0; i < nevt; i++ )
-        {
-            evt = &state->rcv_evs[i];
-            
-#ifdef USE_KQUEUE
-            w = (afd_watch_t*)evt->udata;
-            switch ( evt->filter ) {
-                case EVFILT_READ:
-                    w->cb( loop, w, AS_EV_READ, evt->flags & EV_EOF );
-                break;
-                case EVFILT_WRITE:
-                    w->cb( loop, w, AS_EV_WRITE, evt->flags & EV_EOF );
-                break;
-                case EVFILT_TIMER:
-                    w->cb( loop, w, AS_EV_TIMER, 0 );
-                break;
-                default:
-                    plog( "unknown event" );
-                    break;
-            }
-#elif USE_EPOLL
-            w = (afd_watch_t*)evt->data.ptr;
-            if( evt->events & EPOLLIN ){
-                w->cb( loop, w, AS_EV_READ, 
-                       evt->events & (EPOLLERR|EPOLLRDHUP|EPOLLHUP) );
-            }
-            else if( evt->events & EPOLLOUT ){
-                w->cb( loop, w, AS_EV_WRITE, 
-                       evt->events & (EPOLLERR|EPOLLRDHUP|EPOLLHUP) );
-            }
-            else {
-                plog( "unknown event" );
-            }
-#endif
-        }
-    }
-    
-    return nevt;
 }
 
 

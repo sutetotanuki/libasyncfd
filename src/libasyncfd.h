@@ -107,6 +107,28 @@ afd_loop_t *afd_loop_alloc( afd_sock_t *as, int32_t nevts,
 */
 void afd_loop_dealloc( afd_loop_t *loop );
 
+/*
+    run event loop forever
+    
+    loop    : target event loop
+*/
+int afd_loop( afd_loop_t *loop );
+
+/*
+    run event loop a once
+    
+    loop    : target event loop
+    timeout : if set to NULL wait forever
+*/
+int afd_loop_once( afd_loop_t *loop, struct timespec *timeout );
+
+/*
+    stop running loop
+    
+    loop    : target event loop
+*/
+void afd_unloop( afd_loop_t *loop );
+
 
 /*
     event watch flags
@@ -221,14 +243,6 @@ int afd_unwatch( afd_loop_t *loop, int closefd, afd_watch_t *w );
     return: 0 on success, or less then 0 on failure.(check errno)
 */
 int afd_unnwatch( afd_loop_t *loop, int closefd, ... );
-
-/*
-    wait a while occur event and specified timeout
-    
-    loop    : target event loop
-    timeout : if set to NULL wait forever
-*/
-int afd_wait( afd_loop_t *loop, struct timespec *timeout );
 
 
 /* helper functions */
