@@ -206,6 +206,15 @@ int afd_watch_init( afd_watch_t *w, int fd, afd_evflag_e flg, afd_watch_cb cb,
 */
 int afd_timer_init( afd_watch_t *w, struct timespec *tspec, afd_watch_cb cb, 
                     void *udata );
+
+/*
+    update time interval for timer event
+    
+    w       : afd_watch_t for timer
+    tspec   : timeout interval
+*/
+void afd_timer_update( afd_watch_t *w, struct timespec *tspec );
+
 /*
     register afd_watch_t to event loop.
     

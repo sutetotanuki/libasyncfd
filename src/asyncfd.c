@@ -515,7 +515,6 @@ int afd_watch_init( afd_watch_t *w, int fd, afd_evflag_e flg, afd_watch_cb cb,
 int afd_timer_init( afd_watch_t *w, struct timespec *tspec, afd_watch_cb cb, 
                     void *udata )
 {
-    // valid defined descriptor, flag, callbacks
     if( tspec && cb )
     {
         // set passed args
@@ -527,18 +526,12 @@ int afd_timer_init( afd_watch_t *w, struct timespec *tspec, afd_watch_cb cb,
         w->fd = 0;
         w->filter = EVFILT_TIMER;
         w->fflg = EV_ADD;
-        w->tspec = (struct timespec){ 
-            .tv_sec = tspec->tv_sec,
-            .tv_nsec = tspec->tv_nsec
-        };
+        afd_timer_update( w, tspec );
 #elif USE_EPOLL
         w->flg = AS_EV_TIMER;
         w->filter = EPOLLRDHUP|EPOLLIN;
         w->tspec.it_value = (struct timespec){ .tv_sec = 0, .tv_nsec = 0 };
-        w->tspec.it_interval = (struct timespec){
-            .tv_sec = tspec->tv_sec,
-            .tv_nsec = tspec->tv_nsec
-        };
+        afd_timer_update( w, tspec );
         w->fd = timerfd_create( CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC );
         if( w->fd == -1 ){
             return -1;
@@ -550,6 +543,22 @@ int afd_timer_init( afd_watch_t *w, struct timespec *tspec, afd_watch_cb cb,
     errno = EINVAL;
     
     return -1;
+}
+
+void afd_timer_update( afd_watch_t *w, struct timespec *tspec )
+{
+    // update time interval
+#ifdef USE_KQUEUE
+    w->tspec = (struct timespec){ 
+        .tv_sec = tspec->tv_sec,
+        .tv_nsec = tspec->tv_nsec
+    };
+#elif USE_EPOLL
+    w->tspec.it_interval = (struct timespec){
+        .tv_sec = tspec->tv_sec,
+        .tv_nsec = tspec->tv_nsec
+    };
+#endif
 }
 
 int afd_watch( afd_loop_t *loop, afd_watch_t *w )
