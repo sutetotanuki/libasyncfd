@@ -456,9 +456,8 @@ int afd_watch_init( afd_watch_t *w, int fd, afd_evflag_e flg, afd_watch_cb cb,
     {
         // set passed args
         w->fd = fd;
-        w->flg = 0;
         w->fflg = 0;
-        w->cb = cb;
+        w->cb = NULL;
         w->udata = udata;
         
         // init filter
@@ -500,8 +499,9 @@ int afd_watch_init( afd_watch_t *w, int fd, afd_evflag_e flg, afd_watch_cb cb,
                 errno = EINVAL;
                 return -1;
         }
-        // set valid flag
+        // set valid flag and callback
         w->flg = flg;
+        w->cb = cb;
 
         return 0;
     }
@@ -515,10 +515,10 @@ int afd_watch_init( afd_watch_t *w, int fd, afd_evflag_e flg, afd_watch_cb cb,
 int afd_timer_init( afd_watch_t *w, struct timespec *tspec, afd_watch_cb cb, 
                     void *udata )
 {
+    w->cb = NULL;
     if( tspec && cb )
     {
         // set passed args
-        w->cb = cb;
         w->udata = udata;
         w->flg = AS_EV_TIMER;
         
@@ -537,6 +537,7 @@ int afd_timer_init( afd_watch_t *w, struct timespec *tspec, afd_watch_cb cb,
             return -1;
         }
 #endif
+        w->cb = cb;
         return 0;
     }
     // invalid arguments
@@ -633,44 +634,47 @@ int afd_nwatch( afd_loop_t *loop, ... )
 
 int afd_unwatch( afd_loop_t *loop, int closefd, afd_watch_t *w )
 {
-    int rc = 0;
+    if( w->cb )
+    {
+        int rc = 0;
 #ifdef USE_KQUEUE
-    struct kevent evt;
-    
-    // use address for ident if kqueue timer event
-    if( w->filter == EVFILT_TIMER )
-    {
-        EV_SET( &evt, (uintptr_t)w, w->filter, EV_DELETE, 0, 0, NULL );
+        struct kevent evt;
+        
+        // use address for ident if kqueue timer event
+        if( w->filter == EVFILT_TIMER )
+        {
+            EV_SET( &evt, (uintptr_t)w, w->filter, EV_DELETE, 0, 0, NULL );
+            // deregister event
+            rc = kevent( loop->state->fd, &evt, 1, NULL, 0, NULL );
+        }
+        else
+        {
+            EV_SET( &evt, w->fd, w->filter, EV_DELETE, 0, 0, NULL );
+            // deregister event
+            rc = kevent( loop->state->fd, &evt, 1, NULL, 0, NULL );
+            if( closefd ){
+                shutdown( w->fd, SHUT_RDWR );
+                close( w->fd );
+            }
+        }
+        
+#elif USE_EPOLL
+        struct epoll_event evt;
+        
         // deregister event
-        rc = kevent( loop->state->fd, &evt, 1, NULL, 0, NULL );
-    }
-    else
-    {
-        EV_SET( &evt, w->fd, w->filter, EV_DELETE, 0, 0, NULL );
-        // deregister event
-        rc = kevent( loop->state->fd, &evt, 1, NULL, 0, NULL );
+        // do not set null to event argument for portability
+        rc = epoll_ctl( loop->state->fd, EPOLL_CTL_DEL, w->fd, &evt );
+        // use timerfd with epoll
         if( closefd ){
             shutdown( w->fd, SHUT_RDWR );
             close( w->fd );
         }
-    }
-    
-#elif USE_EPOLL
-    struct epoll_event evt;
-    
-    // deregister event
-    // do not set null to event argument for portability
-    rc = epoll_ctl( loop->state->fd, EPOLL_CTL_DEL, w->fd, &evt );
-    // use timerfd with epoll
-    if( closefd ){
-        shutdown( w->fd, SHUT_RDWR );
-        close( w->fd );
-    }
 #endif
     
-    // decrement number of registered event
-    if( !rc ){
-        loop->state->nreg--;
+        // decrement number of registered event
+        if( !rc ){
+            loop->state->nreg--;
+        }
     }
     
     return 0;
