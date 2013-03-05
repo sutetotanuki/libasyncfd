@@ -15,7 +15,7 @@
 #include <errno.h>
 #include "libasyncfd_config.h"
 
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
 #include <sys/event.h>
 
 #elif USE_EPOLL

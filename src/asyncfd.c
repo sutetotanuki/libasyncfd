@@ -244,7 +244,7 @@ int afd_listen( afd_sock_t *as, int backlog )
 
 
 struct _afd_state_t {
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
     struct kevent *rcv_evs;
 
 #elif USE_EPOLL
@@ -267,13 +267,13 @@ static afd_state_t *_afd_state_alloc( int32_t nevs, afd_loop_cleanup_cb cb,
     if( state )
     {
         if(
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
         ( state->rcv_evs = pnalloc( nevs, struct kevent ) ) && 
         ( state->fd = kqueue() ) != -1
 
 #elif USE_EPOLL
         ( state->rcv_evs = pnalloc( nevs, struct epoll_event ) ) && 
-#ifdef HAVE_EPOLL_CREATE1
+#if HAVE_EPOLL_CREATE1
         ( state->fd = epoll_create1( EPOLL_CLOEXEC ) ) != -1
 #else
         ( state->fd = epoll_create( nevs ) ) != -1
@@ -297,7 +297,7 @@ static afd_state_t *_afd_state_alloc( int32_t nevs, afd_loop_cleanup_cb cb,
 
 static int _afd_state_realloc( afd_state_t *state, int32_t nevs )
 {
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
     struct kevent *evs = prealloc( nevs, struct kevent, state->rcv_evs );
 #elif USE_EPOLL
     struct epoll_event *evs = prealloc( nevs, struct epoll_event, state->rcv_evs );
@@ -361,7 +361,7 @@ static int _afd_loop( afd_loop_t *loop, struct timespec *timeout )
     afd_watch_t *w;
     int nevt = 0;
     int i = 0;
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
     struct kevent *evt = NULL;
     struct timespec *tval = timeout;
 #elif USE_EPOLL
@@ -372,7 +372,7 @@ static int _afd_loop( afd_loop_t *loop, struct timespec *timeout )
 
     do
     {
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
         nevt = kevent( state->fd, NULL, 0, state->rcv_evs, state->nreg, tval );
 
 #elif USE_EPOLL
@@ -383,7 +383,7 @@ static int _afd_loop( afd_loop_t *loop, struct timespec *timeout )
             for( i = 0; i < nevt; i++ )
             {
                 evt = &state->rcv_evs[i];
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
                 w = (afd_watch_t*)evt->udata;
 #elif USE_EPOLL
                 w = (afd_watch_t*)evt->data.ptr;
@@ -392,7 +392,7 @@ static int _afd_loop( afd_loop_t *loop, struct timespec *timeout )
                     case AS_EV_READ:
                     case AS_EV_WRITE:
                     case AS_EV_TIMER:
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
                         w->cb( loop, w, w->flg, evt->flags & EV_EOF );
 #elif USE_EPOLL
                         w->cb( loop, w, w->flg, 
@@ -464,14 +464,14 @@ int afd_watch_init( afd_watch_t *w, int fd, afd_evflag_e flg, afd_watch_cb cb,
         // kqueue will catch hang-up event on default.
         if( flg & AS_EV_EDGE ){
             flg &= ~AS_EV_EDGE; 
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
             w->fflg = EV_ADD|EV_CLEAR;
 #elif USE_EPOLL
             w->filter = EPOLLRDHUP|EPOLLET;
 #endif
         }
         else {
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
             w->fflg = EV_ADD;
 #elif USE_EPOLL
             w->filter = EPOLLRDHUP;
@@ -481,14 +481,14 @@ int afd_watch_init( afd_watch_t *w, int fd, afd_evflag_e flg, afd_watch_cb cb,
         switch( flg )
         {
             case AS_EV_READ:
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
                 w->filter = EVFILT_READ;
 #elif USE_EPOLL
                 w->filter |= EPOLLIN;
 #endif
             break;
             case AS_EV_WRITE:
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
                 w->filter = EVFILT_WRITE;
 #elif USE_EPOLL
                 w->filter |= EPOLLOUT;
@@ -522,7 +522,7 @@ int afd_timer_init( afd_watch_t *w, struct timespec *tspec, afd_watch_cb cb,
         w->udata = udata;
         w->flg = AS_EV_TIMER;
         
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
         w->fd = 0;
         w->filter = EVFILT_TIMER;
         w->fflg = EV_ADD;
@@ -549,7 +549,7 @@ int afd_timer_init( afd_watch_t *w, struct timespec *tspec, afd_watch_cb cb,
 void afd_timer_update( afd_watch_t *w, struct timespec *tspec )
 {
     // update time interval
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
     w->tspec = (struct timespec){ 
         .tv_sec = tspec->tv_sec,
         .tv_nsec = tspec->tv_nsec
@@ -565,7 +565,7 @@ void afd_timer_update( afd_watch_t *w, struct timespec *tspec )
 int afd_watch( afd_loop_t *loop, afd_watch_t *w )
 {
     int rc = 0;
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
     struct kevent evt;
     
     if( w->filter == EVFILT_TIMER ){
@@ -637,7 +637,7 @@ int afd_unwatch( afd_loop_t *loop, int closefd, afd_watch_t *w )
     if( w->cb )
     {
         int rc = 0;
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
         struct kevent evt;
         
         // use address for ident if kqueue timer event

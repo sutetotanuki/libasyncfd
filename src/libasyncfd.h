@@ -168,7 +168,7 @@ struct _afd_watch_t {
     int fd;
     uint8_t flg;
     uint32_t fflg;
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
     int16_t filter;
     struct timespec tspec;
 #elif USE_EPOLL
@@ -297,7 +297,7 @@ int afd_unnwatch( afd_loop_t *loop, int closefd, ... );
             -1 on failure to accept client socket
             0 on failure to set flags
 */
-#ifdef HAVE_ACCEPT4
+#if HAVE_ACCEPT4
 
 #define afd_accept(c,s,addr,len,delay) \
     ((*c = accept4(s,addr,len,SOCK_NONBLOCK|SOCK_CLOEXEC)) == -1 ) ? -1 : \
@@ -324,7 +324,7 @@ int afd_unnwatch( afd_loop_t *loop, int closefd, ... );
 #endif
 
 
-#ifdef USE_KQUEUE
+#if USE_KQUEUE
 /*
     afd_edge_start()
     use this macro before retrieving client data(like read/recv) if you use 
